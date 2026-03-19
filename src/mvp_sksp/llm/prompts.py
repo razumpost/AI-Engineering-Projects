@@ -51,19 +51,22 @@ def compose_prompt(
     requirements: ProjectRequirements,
     roles: Sequence[ExpandedRole],
     topology: TopologyDecision,
+    role_candidates: dict[str, list[str]],
 ) -> PromptBundle:
     system = (
         "Ты проектный помощник по спецификации (СкСп).\n"
         "Верни ТОЛЬКО валидный JSON по контракту sksp.v1.\n"
-        "Главное правило: сначала покрой обязательные роли из TopologyDecision и RolePlan, затем добери полезные вторичные позиции, "
-        "и только потом задавай вопросы.\n"
-        "ВАЖНО:\n"
+        "CandidatePool уже отфильтрован по topology, room_type и allowed_families.\n"
+        "Главное правило: сначала покрой обязательные роли из TopologyDecision и RolePlan, затем добери полезные вторичные позиции.\n"
+        "ЖЁСТКИЕ ОГРАНИЧЕНИЯ:\n"
         "- operations — список ОПЕРАЦИЙ; у каждой операции ОБЯЗАТЕЛЬНО поле op\n"
-        "- followup_questions — список объектов: {question: string, priority: high|medium|low}\n"
-        "- не используй семейства вне allowed_families для каждой роли\n"
-        "- preferred_families используй как приоритет, но не как абсолютный запрет\n"
-        "- если данных недостаточно, всё равно выдай максимально полный черновик, а вопросы оставь только по критичным пробелам\n"
+        "- использовать можно ТОЛЬКО candidate_id из CandidatePool\n"
+        "- для каждой роли используй ТОЛЬКО candidate_id из RoleCandidates для этой роли\n"
+        "- не используй display/panel candidates как камеры\n"
+        "- не используй projection_screen/LED/video_mixer в meeting_room\n"
+        "- не собирай параллельно несколько альтернативных topology в одной СкСп\n"
         "- не дублируй строки\n"
+        "- followup_questions — список объектов: {question: string, priority: high|medium|low}\n"
     )
 
     user = (
@@ -71,13 +74,14 @@ def compose_prompt(
         "Приоритет принятия решения:\n"
         "1) закрыть required roles из TopologyDecision\n"
         "2) учесть RolePlan и preferred_families\n"
-        "3) учесть caps/flags/exclusions из ProjectRequirements\n"
-        "4) выбирать позиции СТРОГО из CandidatePool.items по candidate_id\n"
+        "3) использовать candidate_id из RoleCandidates\n"
+        "4) не добавлять альтернативные стеки оборудования\n"
         "5) followup_questions только если после заполнения остаются критичные неопределённости\n\n"
         f"UserRequest:\n{user_request}\n\n"
         f"ProjectRequirements(JSON):\n{requirements.model_dump(mode='json')}\n\n"
         f"TopologyDecision(JSON):\n{topology.model_dump(mode='json')}\n\n"
         f"RolePlan(JSON):\n{_role_plan_dump(roles)}\n\n"
+        f"RoleCandidates(JSON):\n{role_candidates}\n\n"
         f"CandidatePool(JSON):\n{pool.model_dump(mode='json')}\n\n"
         f"JSON пример:\n{_SCHEMA_EXAMPLE}\n"
     )

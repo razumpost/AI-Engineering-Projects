@@ -17,6 +17,8 @@ from ..domain.spec import Spec
 _CATEGORY_RU = {
     "cameras": "Камеры",
     "conference": "Аудио / ВКС",
+    "audio": "Аудио / ВКС",
+    "display": "Отображение / Панели",
     "signal_transport": "Коммутация / Кабельная система",
     "processing": "Обработка / Управление",
     "misc": "Прочее",

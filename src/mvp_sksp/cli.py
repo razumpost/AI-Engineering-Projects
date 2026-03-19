@@ -57,6 +57,11 @@ def main() -> int:
         roles=role_plan,
     )
     pool = coverage.filtered_pool
+    role_candidates = {
+        d.role_key: d.selected_candidate_ids
+        for d in coverage.role_debug
+        if d.selected_candidate_ids
+    }
 
     if os.getenv("MVP_SKSP_DEBUG_PLAN") == "1":
         print("[debug] requirements =", requirements.model_dump(mode="json"))
@@ -76,6 +81,7 @@ def main() -> int:
         print("[debug] raw_pool items =", len(raw_pool.items), "tasks =", len(raw_pool.tasks))
         print("[debug] filtered_pool items =", len(pool.items), "tasks =", len(pool.tasks))
         print("[debug] kept_candidate_ids =", coverage.kept_candidate_ids[:20])
+        print("[debug] role_candidates =", role_candidates)
         if coverage.warnings:
             print("[debug] coverage warnings =", coverage.warnings)
         for d in coverage.role_debug:
@@ -103,7 +109,7 @@ def main() -> int:
         )
     )
 
-    pb = compose_prompt(args.request, pool, requirements=requirements, roles=role_plan, topology=topology)
+    pb = compose_prompt(args.request, pool, requirements=requirements, roles=role_plan, topology=topology, role_candidates=role_candidates)
 
     try:
         spec = compose(llm=llm, run=run, system=pb.system, user=pb.user, pool=pool, request_text=args.request)

@@ -44,6 +44,17 @@ def _apply_llm_meta(spec: Spec, resp: SkspLLMResponse) -> None:
     spec.manager_questions = _filter_manager_questions([q.question for q in resp.followup_questions])
 
 
+def _restrict_ops_to_pool(ops: list[PatchOperation], pool: CandidatePool) -> list[PatchOperation]:
+    allowed = set(pool.by_id().keys())
+    out: list[PatchOperation] = []
+    for op in ops:
+        cid = op.item.candidate_id if op.item and op.item.candidate_id else None
+        if op.op in {"add_line", "replace_line"} and cid and cid not in allowed:
+            continue
+        out.append(op)
+    return out
+
+
 def _coerce_llm_obj(obj: dict[str, Any]) -> dict[str, Any]:
     d = dict(obj)
     if "version" not in d:
