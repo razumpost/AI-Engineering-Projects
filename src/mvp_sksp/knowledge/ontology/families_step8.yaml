@@ -1,0 +1,23 @@
+families:
+  projection_screen:
+    title: Проекционный экран
+    categories: [display]
+    capabilities: [presentation]
+    keywords: [экран с электроприводом, projection screen, matte white, fiberglass, полотно]
+    interfaces: []
+    notes:
+      - Не является заменой display_panel в переговорной по умолчанию.
+
+  video_mixer:
+    title: Видеомикшер
+    categories: [processing]
+    capabilities: [streaming, video_playback]
+    keywords: [видеомикшер, video mixer, rgblink, atem]
+    interfaces: [hdmi, network]
+
+  wireless_receiver:
+    title: Беспроводной приёмник
+    categories: [conference]
+    capabilities: [speech_reinforcement]
+    keywords: [receiver, приемник, радиоприемник]
+    interfaces: [rf, audio]

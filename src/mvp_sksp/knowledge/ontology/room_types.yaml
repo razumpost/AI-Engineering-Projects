@@ -1,0 +1,47 @@
+room_types:
+  meeting_room:
+    title: Переговорная / конференц-комната
+    default_roles:
+      - room_display_main
+      - room_audio_capture
+      - room_audio_playback
+      - room_signal_switching
+      - room_cabling_and_accessories
+    default_capabilities:
+      - presentation
+
+  videowall:
+    title: Видеостена
+    default_roles:
+      - wall_display_tiles
+      - wall_mounting_system
+      - wall_signal_controller
+      - wall_signal_distribution
+      - wall_cabling_and_accessories
+    default_capabilities:
+      - video_playback
+
+  led_screen:
+    title: Светодиодный экран
+    default_roles:
+      - led_display_surface
+      - led_processor
+      - led_signal_chain
+      - led_power_chain
+      - led_structure_and_mounting
+      - led_service_kit
+    default_capabilities:
+      - video_playback
+
+  auditorium:
+    title: Актовый / конференц-зал
+    default_roles:
+      - hall_display_main
+      - hall_audio_capture
+      - hall_audio_playback
+      - hall_signal_switching
+      - hall_control
+      - hall_cabling_and_accessories
+    default_capabilities:
+      - presentation
+      - speech_reinforcement

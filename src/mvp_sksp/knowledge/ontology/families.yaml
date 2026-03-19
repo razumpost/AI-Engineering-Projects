@@ -1,0 +1,822 @@
+families:
+  ptz_camera:
+    title: PTZ-камера
+    categories:
+    - cameras
+    capabilities:
+    - vks
+    keywords:
+    - ptz
+    - camera
+    - камера
+    - ndi
+    interfaces:
+    - hdmi
+    - usb
+    - ip
+  fixed_conference_camera:
+    title: Фиксированная конференц-камера
+    categories:
+    - cameras
+    capabilities:
+    - vks
+    keywords:
+    - conference camera
+    - камера
+    interfaces:
+    - usb
+    - hdmi
+    - ip
+  videobar:
+    title: Видеобар
+    categories:
+    - conference
+    capabilities:
+    - vks
+    - byod
+    keywords:
+    - videobar
+    - soundbar
+    - conferencebar
+    interfaces:
+    - usb
+    - hdmi
+    - ip
+  delegate_unit:
+    title: Пульт делегата
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - делегат
+    - delegate
+    - пульт
+    interfaces:
+    - conference_bus
+  chairman_unit:
+    title: Пульт председателя
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - председатель
+    - chairman
+    - пульт
+    interfaces:
+    - conference_bus
+  tabletop_mic:
+    title: Настольный микрофон
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - микрофон
+    - gooseneck
+    - tabletop
+    interfaces:
+    - xlr
+    - usb
+  ceiling_mic_array:
+    title: Потолочный микрофонный массив
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - ceiling mic
+    - потолочный микрофон
+    interfaces:
+    - network
+    - dante
+    - poe
+  speakerphone:
+    title: Спикерфон
+    categories:
+    - conference
+    capabilities:
+    - vks
+    - byod
+    keywords:
+    - speakerphone
+    - спикерфон
+    interfaces:
+    - usb
+    - bluetooth
+  conference_controller:
+    title: Центральный блок конференц-системы
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - central unit
+    - conference controller
+    - центральный блок
+    interfaces:
+    - conference_bus
+    - usb
+    - audio
+  dsp:
+    title: DSP / аудиопроцессор
+    categories:
+    - processing
+    capabilities:
+    - vks
+    - speech_reinforcement
+    keywords:
+    - dsp
+    - audio processor
+    - аудиопроцессор
+    interfaces:
+    - dante
+    - analog_audio
+    - usb
+  usb_dsp_bridge:
+    title: USB bridge / DSP bridge
+    categories:
+    - processing
+    capabilities:
+    - vks
+    - byod
+    keywords:
+    - usb bridge
+    - usb audio
+    interfaces:
+    - usb
+    - dante
+    - analog_audio
+  wall_speaker:
+    title: Настенная акустика
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - speaker
+    - колонка
+    interfaces:
+    - speaker_line
+  ceiling_speaker:
+    title: Потолочная акустика
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - ceiling speaker
+    interfaces:
+    - speaker_line
+  soundbar:
+    title: Саундбар
+    categories:
+    - conference
+    capabilities:
+    - vks
+    keywords:
+    - soundbar
+    interfaces:
+    - hdmi
+    - usb
+  amplifier:
+    title: Усилитель
+    categories:
+    - processing
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - amplifier
+    - усилитель
+    interfaces:
+    - audio_in
+    - speaker_line
+  display_panel:
+    title: Профессиональная панель
+    categories:
+    - display
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - display
+    - panel
+    - панель
+    interfaces:
+    - hdmi
+    - dp
+  interactive_panel:
+    title: Интерактивная панель
+    categories:
+    - display
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - interactive
+    - интерактив
+    - nextpanel
+    interfaces:
+    - hdmi
+    - usb
+    - wifi
+  projector:
+    title: Проектор
+    categories:
+    - display
+    capabilities:
+    - presentation
+    keywords:
+    - projector
+    - проектор
+    interfaces:
+    - hdmi
+    - dp
+  byod_wireless_presentation:
+    title: Беспроводной BYOD/презентационный шлюз
+    categories:
+    - signal_transport
+    capabilities:
+    - byod
+    - presentation
+    keywords:
+    - byod
+    - clickshare
+    - wireless presentation
+    interfaces:
+    - hdmi
+    - usb
+    - network
+  byod_usb_hdmi_gateway:
+    title: Проводной BYOD шлюз
+    categories:
+    - signal_transport
+    capabilities:
+    - byod
+    - vks
+    keywords:
+    - usb-c
+    - hdmi
+    - byod
+    - gateway
+    interfaces:
+    - usb
+    - hdmi
+    - network
+  usb_c_dock:
+    title: USB-C док / подключение ноутбука
+    categories:
+    - signal_transport
+    capabilities:
+    - byod
+    - presentation
+    keywords:
+    - usb-c
+    - type-c
+    - dock
+    interfaces:
+    - usb
+    - hdmi
+    - ethernet
+  matrix_switcher:
+    title: Матричный коммутатор
+    categories:
+    - signal_transport
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - matrix
+    - матрица
+    - switcher
+    interfaces:
+    - hdmi
+    - dp
+    - network
+  presentation_switcher:
+    title: Презентационный коммутатор
+    categories:
+    - signal_transport
+    capabilities:
+    - presentation
+    - byod
+    keywords:
+    - presentation switcher
+    - switcher
+    interfaces:
+    - hdmi
+    - usb
+    - network
+  av_over_ip_tx:
+    title: AV-over-IP передатчик
+    categories:
+    - signal_transport
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - tx
+    - encoder
+    - over ip
+    interfaces:
+    - network
+    - hdmi
+  av_over_ip_rx:
+    title: AV-over-IP приёмник
+    categories:
+    - signal_transport
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - rx
+    - decoder
+    - over ip
+    interfaces:
+    - network
+    - hdmi
+  simple_io_hub:
+    title: Простой AV hub / splitter / extender
+    categories:
+    - signal_transport
+    capabilities:
+    - presentation
+    keywords:
+    - splitter
+    - extender
+    - hub
+    interfaces:
+    - hdmi
+    - usb
+  touch_panel:
+    title: Сенсорная панель управления
+    categories:
+    - control
+    capabilities:
+    - control
+    keywords:
+    - touch panel
+    interfaces:
+    - network
+    - poe
+  keypad_controller:
+    title: Кнопочная панель управления
+    categories:
+    - control
+    capabilities:
+    - control
+    keywords:
+    - keypad
+    interfaces:
+    - network
+  control_processor:
+    title: Контроллер управления
+    categories:
+    - control
+    capabilities:
+    - control
+    keywords:
+    - control processor
+    - controller
+    interfaces:
+    - network
+    - serial
+    - ir
+  managed_switch:
+    title: Управляемый коммутатор
+    categories:
+    - signal_transport
+    capabilities:
+    - control
+    - vks
+    keywords:
+    - switch
+    - managed
+    interfaces:
+    - network
+  poe_switch:
+    title: PoE коммутатор
+    categories:
+    - signal_transport
+    capabilities:
+    - control
+    - vks
+    keywords:
+    - poe switch
+    interfaces:
+    - network
+    - poe
+  videowall_panel:
+    title: Панель видеостены
+    categories:
+    - display
+    capabilities:
+    - video_playback
+    keywords:
+    - videowall
+    interfaces:
+    - hdmi
+    - dp
+  videowall_mount:
+    title: Крепление видеостены
+    categories:
+    - mounting
+    capabilities: []
+    keywords:
+    - mount
+    - wall mount
+    interfaces: []
+  videowall_controller:
+    title: Контроллер видеостены
+    categories:
+    - processing
+    capabilities:
+    - video_playback
+    keywords:
+    - videowall controller
+    interfaces:
+    - hdmi
+    - dp
+    - network
+  splitter:
+    title: Сплиттер
+    categories:
+    - signal_transport
+    capabilities:
+    - video_playback
+    keywords:
+    - splitter
+    interfaces:
+    - hdmi
+    - dp
+  led_cabinet:
+    title: LED кабинет / модуль
+    categories:
+    - display
+    capabilities:
+    - video_playback
+    keywords:
+    - led
+    - cabinet
+    - модуль
+    interfaces:
+    - led_bus
+  led_processor:
+    title: LED процессор
+    categories:
+    - processing
+    capabilities:
+    - video_playback
+    keywords:
+    - led processor
+    interfaces:
+    - hdmi
+    - dp
+    - led_bus
+  sending_card:
+    title: Sending card
+    categories:
+    - processing
+    capabilities:
+    - video_playback
+    keywords:
+    - sending card
+    interfaces:
+    - led_bus
+  receiving_card:
+    title: Receiving card
+    categories:
+    - processing
+    capabilities:
+    - video_playback
+    keywords:
+    - receiving card
+    interfaces:
+    - led_bus
+  led_signal_accessories:
+    title: LED сигнальные аксессуары
+    categories:
+    - signal_transport
+    capabilities:
+    - video_playback
+    keywords:
+    - led cable
+    - signal
+    interfaces:
+    - led_bus
+  power_distribution:
+    title: Силовое распределение
+    categories:
+    - power
+    capabilities: []
+    keywords:
+    - power
+    - pdu
+    interfaces:
+    - power
+  led_power_accessories:
+    title: LED силовые аксессуары
+    categories:
+    - power
+    capabilities: []
+    keywords:
+    - power cable
+    interfaces:
+    - power
+  led_structure:
+    title: Конструктив LED
+    categories:
+    - mounting
+    capabilities: []
+    keywords:
+    - structure
+    interfaces: []
+  led_rigging:
+    title: Подвес / риггинг LED
+    categories:
+    - mounting
+    capabilities: []
+    keywords:
+    - rigging
+    interfaces: []
+  led_floor_support:
+    title: Напольная опора LED
+    categories:
+    - mounting
+    capabilities: []
+    keywords:
+    - floor support
+    interfaces: []
+  led_spares:
+    title: Запасные модули LED
+    categories:
+    - service
+    capabilities: []
+    keywords:
+    - spare
+    interfaces: []
+  led_service_toolkit:
+    title: Сервисный комплект LED
+    categories:
+    - service
+    capabilities: []
+    keywords:
+    - service kit
+    interfaces: []
+  transport_case:
+    title: Транспортировочный кейс
+    categories:
+    - service
+    capabilities: []
+    keywords:
+    - case
+    - кофр
+    interfaces: []
+  wireless_mic:
+    title: Радиомикрофон
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - wireless mic
+    - радиомикрофон
+    interfaces:
+    - rf
+    - audio
+  podium_mic:
+    title: Микрофон трибуны
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - podium mic
+    interfaces:
+    - xlr
+  line_array:
+    title: Линейный массив
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - line array
+    interfaces:
+    - speaker_line
+  active_speaker:
+    title: Активная акустика
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - active speaker
+    interfaces:
+    - audio_in
+    - power
+  mixer:
+    title: Микшер
+    categories:
+    - processing
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - mixer
+    - микшер
+    interfaces:
+    - audio
+  matrix_audio_processor:
+    title: Аудиоматрица
+    categories:
+    - processing
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - audio matrix
+    interfaces:
+    - audio
+    - network
+  media_player:
+    title: Медиаплеер
+    categories:
+    - processing
+    capabilities:
+    - video_playback
+    keywords:
+    - media player
+    interfaces:
+    - hdmi
+    - network
+  room_pc:
+    title: Room PC / OPS / мини-ПК
+    categories:
+    - processing
+    capabilities:
+    - presentation
+    - vks
+    keywords:
+    - pc
+    - ops
+    - windows
+    interfaces:
+    - hdmi
+    - usb
+    - network
+  recorder:
+    title: Рекордер
+    categories:
+    - processing
+    capabilities:
+    - recording
+    keywords:
+    - recorder
+    interfaces:
+    - hdmi
+    - sdI
+    - network
+  stream_encoder:
+    title: Стрим-энкодер
+    categories:
+    - processing
+    capabilities:
+    - streaming
+    keywords:
+    - stream encoder
+    interfaces:
+    - hdmi
+    - network
+  operator_monitor:
+    title: Монитор оператора
+    categories:
+    - display
+    capabilities:
+    - streaming
+    keywords:
+    - operator monitor
+    interfaces:
+    - hdmi
+    - dp
+  cable_hdmi:
+    title: HDMI кабель
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - hdmi cable
+    interfaces:
+    - hdmi
+  cable_usb:
+    title: USB кабель
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - usb cable
+    interfaces:
+    - usb
+  cable_cat:
+    title: Сетевой кабель
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - cat
+    - ethernet
+    interfaces:
+    - network
+  cable_dp:
+    title: DisplayPort кабель
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - displayport
+    interfaces:
+    - dp
+  cable_xlr:
+    title: XLR кабель
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - xlr
+    interfaces:
+    - audio
+  adapters_kit:
+    title: Комплект адаптеров
+    categories:
+    - signal_transport
+    capabilities: []
+    keywords:
+    - adapter
+    interfaces: []
+  mounting_kit:
+    title: Комплект крепежа / расходников
+    categories:
+    - mounting
+    capabilities: []
+    keywords:
+    - mount
+    - kit
+    interfaces: []
+  power_accessories:
+    title: Аксессуары питания
+    categories:
+    - power
+    capabilities: []
+    keywords:
+    - power
+    interfaces: []
+  service_accessories:
+    title: Сервисные аксессуары
+    categories:
+    - service
+    capabilities: []
+    keywords:
+    - service
+    interfaces: []
+  projection_screen:
+    title: Проекционный экран
+    categories:
+    - display
+    capabilities:
+    - presentation
+    keywords:
+    - экран с электроприводом
+    - projection screen
+    - matte white
+    - fiberglass
+    - полотно
+    interfaces: []
+    notes:
+    - Не является заменой display_panel в переговорной по умолчанию.
+  video_mixer:
+    title: Видеомикшер
+    categories:
+    - processing
+    capabilities:
+    - streaming
+    - video_playback
+    keywords:
+    - видеомикшер
+    - video mixer
+    - rgblink
+    - atem
+    interfaces:
+    - hdmi
+    - network
+  wireless_receiver:
+    title: Беспроводной приёмник
+    categories:
+    - conference
+    capabilities:
+    - speech_reinforcement
+    keywords:
+    - receiver
+    - приемник
+    - радиоприемник
+    interfaces:
+    - rf
+    - audio

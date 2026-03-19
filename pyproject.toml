@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mvp-sksp"
+version = "0.1.0"
+description = "SKSP MVP scaffold: retrieval -> knowledge map -> LLM planning -> deterministic editing/validation -> export"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "requests>=2.31",
+  "python-dotenv>=1.0",
+  "openpyxl>=3.1",
+  "PyYAML>=6.0",
+  "SQLAlchemy>=2.0",
+  "psycopg2-binary>=2.9",
+  "kuzu>=0.11",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+  "mypy>=1.8",
+]
+
+[project.scripts]
+mvp-sksp = "mvp_sksp.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["src", "src.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["mvp_sksp"]
+ignore_missing_imports = true

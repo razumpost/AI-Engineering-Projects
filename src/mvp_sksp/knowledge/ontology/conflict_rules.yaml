@@ -1,0 +1,45 @@
+conflict_rules:
+  videobar:
+    conflicts_with: [delegate_unit, chairman_unit, conference_controller]
+    notes:
+      - Видеобар обычно не должен жить в одной topology с полноценной дискуссионной конференц-системой.
+
+  delegate_unit:
+    conflicts_with: [videobar, speakerphone]
+    notes:
+      - Не смешивать дискуссионные пульты и упрощённые speakerphone/videobar topology без явного обоснования.
+
+  chairman_unit:
+    conflicts_with: [videobar, speakerphone]
+
+  projector:
+    conflicts_with: [interactive_panel]
+    notes:
+      - Не смешивать проектор и интерактивную панель как основной room_display_main без отдельной логики secondary display.
+
+  led_cabinet:
+    forbidden_room_types: [meeting_room]
+    allowed_room_types: [led_screen, auditorium]
+    notes:
+      - LED-кабинеты не должны попадать в обычную переговорную как основной display family.
+
+  videowall_panel:
+    forbidden_room_types: [meeting_room, led_screen]
+    allowed_room_types: [videowall]
+
+  projection_screen:
+    forbidden_room_types: [meeting_room]
+    allowed_room_types: [auditorium]
+    notes:
+      - Проекционный экран не должен подменять профессиональную панель в переговорной.
+
+  video_mixer:
+    forbidden_room_types: [meeting_room]
+    allowed_room_types: [auditorium, led_screen]
+    notes:
+      - Видеомикшер без признаков трансляции обычно не нужен в переговорной.
+
+  operator_monitor:
+    forbidden_room_types: [meeting_room]
+    allowed_room_types: [auditorium, led_screen]
+    unless: [streaming, operator_room]

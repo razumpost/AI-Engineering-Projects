@@ -1,0 +1,50 @@
+capabilities:
+  vks:
+    title: Видеоконференцсвязь
+    adds_roles:
+      - room_camera_main
+      - room_usb_bridge_or_byod_gateway
+      - room_audio_capture
+      - room_audio_playback
+
+  byod:
+    title: Подключение пользовательского ноутбука
+    adds_roles:
+      - room_byod_ingest
+      - room_signal_switching
+      - room_usb_bridge_or_byod_gateway
+
+  presentation:
+    title: Презентационный сценарий
+    adds_roles:
+      - room_display_main
+      - room_signal_switching
+
+  recording:
+    title: Запись
+    adds_roles:
+      - recorder_or_stream_encoder
+
+  streaming:
+    title: Трансляция
+    adds_roles:
+      - stream_encoder
+      - operator_monitoring
+
+  speech_reinforcement:
+    title: Озвучивание зала
+    adds_roles:
+      - hall_audio_capture
+      - hall_audio_playback
+      - hall_audio_processing
+
+  control:
+    title: Управление системой
+    adds_roles:
+      - room_control_ui
+      - room_control_processor
+
+  video_playback:
+    title: Видеовоспроизведение
+    adds_roles:
+      - playback_source

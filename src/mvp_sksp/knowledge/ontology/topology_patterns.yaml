@@ -1,0 +1,173 @@
+topology_patterns:
+  meeting_room_delegate_dsp:
+    title: Переговорная с конференц-системой и DSP
+    room_types: [meeting_room]
+    requires_flags: [vks]
+    optional_flags: [byod, presentation, control]
+    preferred_when:
+      min_seat_count: 8
+      has_camera_count: true
+    roles:
+      required:
+        - room_display_main
+        - room_audio_capture
+        - room_audio_playback
+        - room_signal_switching
+        - room_cabling_and_accessories
+        - room_camera_main
+      optional:
+        - room_camera_secondary
+        - room_audio_processing
+        - room_conference_controller
+        - room_byod_ingest
+        - room_usb_bridge_or_byod_gateway
+        - room_control_ui
+        - room_control_processor
+        - room_network_access
+    preferred_families:
+      room_display_main: [display_panel, interactive_panel]
+      room_audio_capture: [delegate_unit, chairman_unit, tabletop_mic, ceiling_mic_array]
+      room_audio_playback: [wall_speaker, ceiling_speaker, soundbar]
+      room_audio_processing: [dsp, conference_controller]
+      room_camera_main: [ptz_camera, fixed_conference_camera]
+      room_camera_secondary: [ptz_camera, fixed_conference_camera]
+      room_byod_ingest: [byod_usb_hdmi_gateway, byod_wireless_presentation, usb_c_dock]
+      room_signal_switching: [presentation_switcher, matrix_switcher, simple_io_hub]
+    notes:
+      - Базовый паттерн для переговорных от 8 мест и выше.
+      - Предпочтителен, если нужна отдельная конференц-система и 2 камеры.
+      - Для переговорных на 10+ мест должен выигрывать у компактных room-pc topology.
+
+  meeting_room_videobar:
+    title: Переговорная с видеобаром
+    room_types: [meeting_room]
+    requires_flags: [vks]
+    optional_flags: [byod, presentation]
+    preferred_when:
+      max_seat_count: 8
+    roles:
+      required:
+        - room_display_main
+        - room_audio_capture
+        - room_audio_playback
+        - room_signal_switching
+        - room_camera_main
+      optional:
+        - room_byod_ingest
+        - room_usb_bridge_or_byod_gateway
+        - room_cabling_and_accessories
+    preferred_families:
+      room_display_main: [display_panel, interactive_panel]
+      room_audio_capture: [videobar, speakerphone]
+      room_audio_playback: [videobar, soundbar]
+      room_camera_main: [videobar]
+      room_byod_ingest: [byod_wireless_presentation, byod_usb_hdmi_gateway]
+    notes:
+      - Предпочтителен для небольших переговорных.
+
+  meeting_room_roompc_dual_camera:
+    title: Переговорная с room PC и двумя камерами
+    room_types: [meeting_room]
+    requires_flags: [vks]
+    optional_flags: [byod, presentation, control]
+    preferred_when:
+      min_camera_count: 2
+      max_seat_count: 8
+    roles:
+      required:
+        - room_display_main
+        - room_audio_capture
+        - room_audio_playback
+        - room_signal_switching
+        - room_cabling_and_accessories
+        - room_camera_main
+        - room_camera_secondary
+      optional:
+        - room_audio_processing
+        - room_byod_ingest
+        - room_usb_bridge_or_byod_gateway
+        - room_control_ui
+        - room_control_processor
+        - room_network_access
+    preferred_families:
+      room_display_main: [display_panel, interactive_panel]
+      room_audio_capture: [tabletop_mic, ceiling_mic_array, delegate_unit]
+      room_audio_playback: [wall_speaker, ceiling_speaker, soundbar]
+      room_audio_processing: [dsp, usb_dsp_bridge]
+      room_camera_main: [ptz_camera]
+      room_camera_secondary: [ptz_camera, fixed_conference_camera]
+      room_byod_ingest: [byod_usb_hdmi_gateway, byod_wireless_presentation]
+      room_signal_switching: [presentation_switcher, matrix_switcher, av_over_ip_tx, av_over_ip_rx]
+    notes:
+      - Подходит для переговорных с двумя независимыми камерами.
+      - Не должен быть topology по умолчанию для переговорных на 10+ мест.
+
+  videowall_basic:
+    title: Базовая видеостена
+    room_types: [videowall]
+    requires_flags: []
+    optional_flags: [control]
+    preferred_when: {}
+    roles:
+      required:
+        - wall_display_tiles
+        - wall_mounting_system
+        - wall_signal_controller
+        - wall_signal_distribution
+        - wall_cabling_and_accessories
+      optional:
+        - room_control_ui
+        - room_control_processor
+    preferred_families:
+      wall_display_tiles: [videowall_panel]
+      wall_mounting_system: [videowall_mount]
+      wall_signal_controller: [videowall_controller]
+      wall_signal_distribution: [matrix_switcher, splitter, av_over_ip_tx, av_over_ip_rx]
+
+  led_screen_mobile:
+    title: Мобильный светодиодный экран
+    room_types: [led_screen]
+    requires_flags: []
+    optional_flags: [control, streaming]
+    preferred_when: {}
+    roles:
+      required:
+        - led_display_surface
+        - led_processor
+        - led_signal_chain
+        - led_power_chain
+        - led_structure_and_mounting
+      optional:
+        - led_service_kit
+        - playback_source
+    preferred_families:
+      led_display_surface: [led_cabinet]
+      led_processor: [led_processor]
+      led_signal_chain: [sending_card, receiving_card, led_signal_accessories]
+      led_power_chain: [power_distribution, led_power_accessories]
+      led_structure_and_mounting: [led_structure, led_rigging, led_floor_support]
+
+  auditorium_speech_display:
+    title: Актовый зал с отображением и озвучиванием
+    room_types: [auditorium]
+    requires_flags: [presentation]
+    optional_flags: [streaming, recording, control, speech_reinforcement]
+    preferred_when: {}
+    roles:
+      required:
+        - hall_display_main
+        - hall_audio_capture
+        - hall_audio_playback
+        - hall_signal_switching
+        - hall_cabling_and_accessories
+      optional:
+        - hall_audio_processing
+        - hall_control
+        - recorder_or_stream_encoder
+        - operator_monitoring
+    preferred_families:
+      hall_display_main: [projector, display_panel, led_cabinet]
+      hall_audio_capture: [wireless_mic, podium_mic, tabletop_mic]
+      hall_audio_playback: [line_array, active_speaker, wall_speaker]
+      hall_audio_processing: [dsp, mixer, matrix_audio_processor]
+      hall_signal_switching: [matrix_switcher, presentation_switcher, av_over_ip_tx, av_over_ip_rx]

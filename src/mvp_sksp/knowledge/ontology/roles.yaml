@@ -1,0 +1,216 @@
+roles:
+  room_display_main:
+    title: Основное средство отображения
+    allowed_families: [display_panel, interactive_panel, projector]
+    required: true
+    qty_rule: one
+
+  room_camera_main:
+    title: Основная камера ВКС
+    allowed_families: [ptz_camera, fixed_conference_camera, videobar]
+    required: true
+    qty_rule: one
+
+  room_camera_secondary:
+    title: Дополнительная камера ВКС
+    allowed_families: [ptz_camera, fixed_conference_camera]
+    required: false
+    qty_rule: one
+
+  room_audio_capture:
+    title: Захват аудио
+    allowed_families: [delegate_unit, chairman_unit, tabletop_mic, ceiling_mic_array, speakerphone, videobar]
+    required: true
+    qty_rule: custom
+
+  room_audio_playback:
+    title: Воспроизведение аудио
+    allowed_families: [soundbar, wall_speaker, ceiling_speaker, speakerphone, videobar]
+    required: true
+    qty_rule: custom
+
+  room_audio_processing:
+    title: Аудиообработка / DSP
+    allowed_families: [dsp, usb_dsp_bridge, conference_controller]
+    required: false
+    qty_rule: one
+
+  room_conference_controller:
+    title: Центральный блок конференц-системы
+    allowed_families: [conference_controller]
+    required: false
+    qty_rule: one
+
+  room_byod_ingest:
+    title: BYOD вход
+    allowed_families: [byod_wireless_presentation, byod_usb_hdmi_gateway, usb_c_dock]
+    required: false
+    qty_rule: one
+
+  room_usb_bridge_or_byod_gateway:
+    title: USB/HDMI мост к ВКС
+    allowed_families: [byod_usb_hdmi_gateway, usb_dsp_bridge, videobar]
+    required: false
+    qty_rule: one
+
+  room_signal_switching:
+    title: Коммутация / маршрутизация сигнала
+    allowed_families: [matrix_switcher, presentation_switcher, av_over_ip_tx, av_over_ip_rx, simple_io_hub]
+    required: true
+    qty_rule: custom
+
+  room_control_ui:
+    title: Панель управления
+    allowed_families: [touch_panel, keypad_controller]
+    required: false
+    qty_rule: one
+
+  room_control_processor:
+    title: Контроллер управления
+    allowed_families: [control_processor]
+    required: false
+    qty_rule: one
+
+  room_network_access:
+    title: Сетевая инфраструктура
+    allowed_families: [managed_switch, poe_switch]
+    required: false
+    qty_rule: custom
+
+  room_cabling_and_accessories:
+    title: Кабельная система и аксессуары
+    allowed_families: [cable_hdmi, cable_usb, cable_cat, adapters_kit, mounting_kit, power_accessories]
+    required: true
+    qty_rule: custom
+
+  wall_display_tiles:
+    title: Панели видеостены
+    allowed_families: [videowall_panel]
+    required: true
+    qty_rule: custom
+
+  wall_mounting_system:
+    title: Крепежная система видеостены
+    allowed_families: [videowall_mount]
+    required: true
+    qty_rule: custom
+
+  wall_signal_controller:
+    title: Контроллер видеостены
+    allowed_families: [videowall_controller]
+    required: true
+    qty_rule: one
+
+  wall_signal_distribution:
+    title: Распределение сигнала видеостены
+    allowed_families: [matrix_switcher, splitter, av_over_ip_tx, av_over_ip_rx]
+    required: true
+    qty_rule: custom
+
+  wall_cabling_and_accessories:
+    title: Кабельная система видеостены
+    allowed_families: [cable_hdmi, cable_dp, cable_cat, service_accessories]
+    required: true
+    qty_rule: custom
+
+  led_display_surface:
+    title: Поверхность LED-экрана
+    allowed_families: [led_cabinet]
+    required: true
+    qty_rule: custom
+
+  led_processor:
+    title: LED-видеопроцессор
+    allowed_families: [led_processor]
+    required: true
+    qty_rule: one
+
+  led_signal_chain:
+    title: LED сигнальная цепочка
+    allowed_families: [sending_card, receiving_card, led_signal_accessories]
+    required: true
+    qty_rule: custom
+
+  led_power_chain:
+    title: LED цепь питания
+    allowed_families: [power_distribution, led_power_accessories]
+    required: true
+    qty_rule: custom
+
+  led_structure_and_mounting:
+    title: Конструктив и крепление LED
+    allowed_families: [led_structure, led_rigging, led_floor_support]
+    required: true
+    qty_rule: custom
+
+  led_service_kit:
+    title: Сервисный комплект LED
+    allowed_families: [led_spares, led_service_toolkit, transport_case]
+    required: false
+    qty_rule: custom
+
+  hall_display_main:
+    title: Основное отображение зала
+    allowed_families: [led_cabinet, projector, display_panel]
+    required: true
+    qty_rule: custom
+
+  hall_audio_capture:
+    title: Захват звука в зале
+    allowed_families: [wireless_mic, tabletop_mic, podium_mic, ceiling_mic_array]
+    required: true
+    qty_rule: custom
+
+  hall_audio_playback:
+    title: Воспроизведение звука в зале
+    allowed_families: [line_array, wall_speaker, ceiling_speaker, active_speaker, amplifier]
+    required: true
+    qty_rule: custom
+
+  hall_audio_processing:
+    title: Обработка звука зала
+    allowed_families: [dsp, mixer, matrix_audio_processor]
+    required: false
+    qty_rule: one
+
+  hall_signal_switching:
+    title: Коммутация зала
+    allowed_families: [matrix_switcher, presentation_switcher, av_over_ip_tx, av_over_ip_rx]
+    required: true
+    qty_rule: custom
+
+  hall_control:
+    title: Управление залом
+    allowed_families: [touch_panel, control_processor]
+    required: false
+    qty_rule: custom
+
+  hall_cabling_and_accessories:
+    title: Кабельная система зала
+    allowed_families: [cable_hdmi, cable_xlr, cable_cat, power_accessories, mounting_kit]
+    required: true
+    qty_rule: custom
+
+  playback_source:
+    title: Источник контента
+    allowed_families: [media_player, room_pc]
+    required: false
+    qty_rule: one
+
+  recorder_or_stream_encoder:
+    title: Запись / encoder
+    allowed_families: [stream_encoder, recorder]
+    required: false
+    qty_rule: one
+
+  stream_encoder:
+    title: Encoder трансляции
+    allowed_families: [stream_encoder]
+    required: false
+    qty_rule: one
+
+  operator_monitoring:
+    title: Мониторинг оператора
+    allowed_families: [operator_monitor, room_pc]
+    required: false
+    qty_rule: custom

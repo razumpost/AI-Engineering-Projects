@@ -1,0 +1,279 @@
+quantity_rules:
+  ptz_camera:
+    rule: same_as_camera_count
+    min_value: 1
+    max_value: 8
+    notes:
+      - Если камера_count не задана, planner задаёт 1 для базового сценария ВКС.
+
+  fixed_conference_camera:
+    rule: same_as_camera_count
+    min_value: 1
+    max_value: 4
+
+  videobar:
+    rule: one_per_room
+    min_value: 1
+    max_value: 1
+
+  delegate_unit:
+    rule: same_as_seat_count
+    min_value: 1
+    max_value: 200
+
+  chairman_unit:
+    rule: one_per_room
+    min_value: 1
+    max_value: 1
+
+  tabletop_mic:
+    rule: same_as_seat_count
+    min_value: 1
+    max_value: 100
+
+  ceiling_mic_array:
+    rule: custom
+    min_value: 1
+    max_value: 8
+    notes:
+      - Обычно рассчитывается от площади/геометрии помещения, а не от seat_count напрямую.
+
+  speakerphone:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  conference_controller:
+    rule: one_per_room
+    min_value: 1
+    max_value: 1
+
+  dsp:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  usb_dsp_bridge:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  wall_speaker:
+    rule: custom
+    min_value: 2
+    max_value: 12
+
+  ceiling_speaker:
+    rule: custom
+    min_value: 2
+    max_value: 16
+
+  soundbar:
+    rule: one_per_display
+    min_value: 1
+    max_value: 2
+
+  amplifier:
+    rule: custom
+    min_value: 1
+    max_value: 4
+
+  display_panel:
+    rule: same_as_display_count
+    min_value: 1
+    max_value: 8
+
+  interactive_panel:
+    rule: same_as_display_count
+    min_value: 1
+    max_value: 8
+
+  projector:
+    rule: same_as_display_count
+    min_value: 1
+    max_value: 4
+
+  byod_wireless_presentation:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  byod_usb_hdmi_gateway:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  usb_c_dock:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  matrix_switcher:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  presentation_switcher:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  av_over_ip_tx:
+    rule: custom
+    min_value: 1
+    max_value: 32
+
+  av_over_ip_rx:
+    rule: custom
+    min_value: 1
+    max_value: 32
+
+  touch_panel:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  control_processor:
+    rule: one_per_room
+    min_value: 1
+    max_value: 1
+
+  managed_switch:
+    rule: custom
+    min_value: 1
+    max_value: 4
+
+  poe_switch:
+    rule: custom
+    min_value: 1
+    max_value: 4
+
+  videowall_panel:
+    rule: custom
+    min_value: 2
+    max_value: 100
+
+  videowall_mount:
+    rule: custom
+    min_value: 2
+    max_value: 100
+
+  videowall_controller:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  led_cabinet:
+    rule: custom
+    min_value: 4
+    max_value: 500
+
+  led_processor:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  sending_card:
+    rule: custom
+    min_value: 1
+    max_value: 8
+
+  receiving_card:
+    rule: custom
+    min_value: 1
+    max_value: 500
+
+  power_distribution:
+    rule: custom
+    min_value: 1
+    max_value: 8
+
+  led_structure:
+    rule: custom
+    min_value: 1
+    max_value: 20
+
+  wireless_mic:
+    rule: custom
+    min_value: 1
+    max_value: 16
+
+  podium_mic:
+    rule: custom
+    min_value: 1
+    max_value: 4
+
+  line_array:
+    rule: custom
+    min_value: 2
+    max_value: 24
+
+  active_speaker:
+    rule: custom
+    min_value: 2
+    max_value: 12
+
+  media_player:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  room_pc:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  recorder:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  stream_encoder:
+    rule: one_per_room
+    min_value: 1
+    max_value: 2
+
+  cable_hdmi:
+    rule: custom
+    min_value: 1
+    max_value: 100
+
+  cable_usb:
+    rule: custom
+    min_value: 1
+    max_value: 100
+
+  cable_cat:
+    rule: custom
+    min_value: 1
+    max_value: 200
+
+  cable_dp:
+    rule: custom
+    min_value: 1
+    max_value: 100
+
+  cable_xlr:
+    rule: custom
+    min_value: 1
+    max_value: 100
+
+  adapters_kit:
+    rule: one_per_room
+    min_value: 1
+    max_value: 3
+
+  mounting_kit:
+    rule: custom
+    min_value: 1
+    max_value: 50
+
+  power_accessories:
+    rule: custom
+    min_value: 1
+    max_value: 50
+
+  service_accessories:
+    rule: custom
+    min_value: 1
+    max_value: 20
