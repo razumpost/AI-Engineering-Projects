@@ -12,6 +12,7 @@ from .llm.prompts import compose_prompt, patch_prompt
 from .persistence.snapshot_store import load_last_valid, make_run_paths
 from .pipeline.export import export_xlsx, render_markdown
 from .pipeline.orchestrator import compose, patch
+from .pipeline.postprocess import postprocess_spec
 from .pipeline.retrieval import build_candidate_pool_from_repo
 from .planning.coverage_planner import build_filtered_pool_for_coverage
 from .planning.requirements import parse_requirements
@@ -109,10 +110,25 @@ def main() -> int:
         )
     )
 
-    pb = compose_prompt(args.request, pool, requirements=requirements, roles=role_plan, topology=topology, role_candidates=role_candidates)
+    pb = compose_prompt(
+        args.request,
+        pool,
+        requirements=requirements,
+        roles=role_plan,
+        topology=topology,
+        role_candidates=role_candidates,
+    )
 
     try:
         spec = compose(llm=llm, run=run, system=pb.system, user=pb.user, pool=pool, request_text=args.request)
+        spec = postprocess_spec(
+            spec=spec,
+            filtered_pool=pool,
+            source_pool=raw_pool,
+            requirements=requirements,
+            topology=topology,
+            roles=role_plan,
+        )
     except Exception as e:
         spec = load_last_valid(run)
         print(f"[ERROR] compose failed: {e}")
@@ -147,6 +163,14 @@ def main() -> int:
         pb = patch_prompt(text, spec, current_pool)
         try:
             spec = patch(llm=llm, run=run, system=pb.system, user=pb.user, pool=current_pool, patch_text=text)
+            spec = postprocess_spec(
+                spec=spec,
+                filtered_pool=current_pool,
+                source_pool=current_pool,
+                requirements=requirements,
+                topology=topology,
+                roles=role_plan,
+            )
         except Exception as e:
             print(f"[ERROR] patch failed: {e}")
             spec = load_last_valid(run) or spec
