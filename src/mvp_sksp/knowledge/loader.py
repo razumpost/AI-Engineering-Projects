@@ -34,6 +34,13 @@ def _load_yaml(name: str) -> dict:
     return data
 
 
+def _load_yaml_optional(name: str) -> dict:
+    path = _ontology_dir() / name
+    if not path.exists():
+        return {}
+    return _load_yaml(name)
+
+
 def _merge_dicts(base: dict, extra: dict) -> dict:
     out = dict(base)
     for key, value in extra.items():
@@ -44,12 +51,24 @@ def _merge_dicts(base: dict, extra: dict) -> dict:
     return out
 
 
+def load_triage_rules() -> dict:
+    """Config-only file to tune triage detectors without code changes."""
+    return _load_yaml_optional("triage_rules.yaml").get("triage_rules", {})
+
+
 def load_knowledge_map() -> KnowledgeMap:
     room_types_raw = _load_yaml("room_types.yaml").get("room_types", {})
     capabilities_raw = _load_yaml("capabilities.yaml").get("capabilities", {})
     roles_raw = _load_yaml("roles.yaml").get("roles", {})
 
     families_raw = _load_yaml("families.yaml").get("families", {})
+
+    # KB overrides (small, targeted; safe to evolve during эксплуатации)
+    kb_families_raw = _load_yaml_optional("families_kb.yaml").get("families", {})
+    if kb_families_raw:
+        families_raw = _merge_dicts(families_raw, kb_families_raw)
+
+    # Step8 learned families (generated)
     extra_families_path = _ontology_dir() / "families_step8.yaml"
     if extra_families_path.exists():
         extra_families_raw = _load_yaml("families_step8.yaml").get("families", {})

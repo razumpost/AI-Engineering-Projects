@@ -35,13 +35,70 @@ def _filter_manager_questions(qs: list[str]) -> list[str]:
     return out
 
 
+def _as_str_list(v):
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, str):
+        return [v.strip()] if v.strip() else []
+    return [str(v).strip()] if str(v).strip() else []
+
+
+def _normalize_explanations(expl):
+    if isinstance(expl, dict):
+        out = {}
+        for k, v in expl.items():
+            out[str(k)] = _as_str_list(v)
+        return out
+    if isinstance(expl, list):
+        return {"why_composition": _as_str_list(expl), "why_qty_and_price": []}
+    if isinstance(expl, str):
+        return {"why_composition": [expl], "why_qty_and_price": []}
+    return {"why_composition": [], "why_qty_and_price": []}
+
+
+def _as_str_list(v):
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, str):
+        return [v.strip()] if v.strip() else []
+    return [str(v).strip()] if str(v).strip() else []
+
+
+def _normalize_explanations(expl):
+    if isinstance(expl, dict):
+        out = {}
+        for k, v in expl.items():
+            out[str(k)] = _as_str_list(v)
+        return out
+    if isinstance(expl, list):
+        return {"why_composition": _as_str_list(expl), "why_qty_and_price": []}
+    if isinstance(expl, str):
+        return {"why_composition": [expl], "why_qty_and_price": []}
+    return {"why_composition": [], "why_qty_and_price": []}
+
+
 def _apply_llm_meta(spec: Spec, resp: SkspLLMResponse) -> None:
-    spec.project_summary = resp.brief.project_summary or spec.project_summary
-    spec.why_composition = list(resp.explanations.get("why_composition", []))
-    spec.why_qty_and_price = list(resp.explanations.get("why_qty_and_price", []))
-    spec.assumptions = list(resp.assumptions)
-    spec.risks = list(resp.risks)
-    spec.manager_questions = _filter_manager_questions([q.question for q in resp.followup_questions])
+    spec.project_summary = getattr(resp.brief, "project_summary", "") or spec.project_summary
+
+    ex = _normalize_explanations(getattr(resp, "explanations", None))
+    spec.why_composition = list(ex.get("why_composition", []))
+    spec.why_qty_and_price = list(ex.get("why_qty_and_price", []))
+
+    spec.assumptions = _as_str_list(getattr(resp, "assumptions", []))
+    spec.risks = _as_str_list(getattr(resp, "risks", []))
+
+    fqs = getattr(resp, "followup_questions", []) or []
+    qs = []
+    for q in fqs:
+        if isinstance(q, dict):
+            qs.append(str(q.get("question", "")).strip())
+        else:
+            qs.append(str(getattr(q, "question", q)).strip())
+    spec.manager_questions = _filter_manager_questions([x for x in qs if x])
 
 
 def _restrict_ops_to_pool(ops: list[PatchOperation], pool: CandidatePool) -> list[PatchOperation]:

@@ -19,16 +19,6 @@ class CandidateLike(Protocol):
 
 _TOKEN_RE = re.compile(r"[a-zA-Zа-яА-Я0-9\-\+\./]+")
 
-_INTERFACE_KEYWORDS: dict[str, list[str]] = {
-    "hdmi": ["hdmi"],
-    "usb": ["usb", "type-c", "usb-c"],
-    "network": ["network", "ethernet", "cat", " ip ", "dante", "poe"],
-    "dp": ["displayport", " dp", "dp "],
-    "audio": ["audio", "xlr", "speaker", "acoustic", "акустик", "колон"],
-    "poe": ["poe"],
-    "rf": ["rf", "мгц", "mhz", "wireless"],
-}
-
 
 @lru_cache(maxsize=1)
 def _km():
@@ -52,25 +42,52 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _room_fit_for_family(family: str) -> list[str]:
-    if family in {"videowall_panel", "videowall_mount", "videowall_controller"}:
+    if family.startswith("videowall_") or family == "videowall_controller":
         return ["videowall"]
-    if family in {
-        "led_cabinet",
-        "led_processor",
-        "sending_card",
-        "receiving_card",
-        "led_signal_accessories",
-        "led_structure",
-        "led_rigging",
-        "led_floor_support",
-        "led_spares",
-        "led_service_toolkit",
-        "transport_case",
-    }:
+    if family.startswith("led_"):
         return ["led_screen", "auditorium"]
-    if family in {"projection_screen", "projector", "line_array", "active_speaker", "podium_mic", "video_mixer", "operator_monitor"}:
+    if family in {"speaker_100v"}:
         return ["auditorium"]
     return ["meeting_room", "auditorium"]
+
+
+def _is_videowall_like(text: str) -> bool:
+    if "видеостен" in text or "videowall" in text:
+        return True
+    if "контроллер" in text and ("видеостен" in text or "1x4" in text or "2x2" in text or "3x3" in text or "4x4" in text):
+        return True
+    if "wall controller" in text:
+        return True
+    return False
+
+
+def _is_100v_speaker(text: str) -> bool:
+    if "100v" in text or "100 v" in text or "70v" in text or "70 v" in text:
+        if "акуст" in text or "speaker" in text or "колон" in text:
+            return True
+    return False
+
+
+def _is_led_like(text: str) -> bool:
+    return ("светодиод" in text) or ("шаг пикс" in text) or ("pixel" in text) or ("яркость" in text)
+
+
+def _is_videobar_like(text: str) -> bool:
+    if "видеобар" in text or "videobar" in text:
+        return True
+    if "nextmeet" in text and ("камера" in text or "микрофон" in text):
+        return True
+    if ("all-in-one" in text or "все-в-одном" in text) and ("камера" in text and "микрофон" in text and "динамик" in text):
+        return True
+    return False
+
+
+def _is_portable_monitor(text: str) -> bool:
+    if "on-lap" in text or "gechic" in text:
+        return True
+    if "портативн" in text and "монитор" in text:
+        return True
+    return False
 
 
 def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
@@ -78,6 +95,68 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
     text = _text(item)
     tokens = _tokenize(text)
 
+    # ---- hard overrides (must be stable) ----
+    if _is_videowall_like(text):
+        fam = "videowall_controller"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=[],
+            interfaces=[],
+            room_fit=_room_fit_for_family(fam),
+            notes=["override:videowall_like"],
+        )
+
+    if _is_100v_speaker(text):
+        fam = "speaker_100v"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=[],
+            interfaces=[],
+            room_fit=_room_fit_for_family(fam),
+            notes=["override:100v_speaker"],
+        )
+
+    if _is_led_like(text):
+        fam = "led_cabinet"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=["presentation"],
+            interfaces=[],
+            room_fit=_room_fit_for_family(fam),
+            notes=["override:led_like"],
+        )
+
+    if _is_videobar_like(text):
+        fam = "videobar"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=["vks", "presentation"],
+            interfaces=["usb", "hdmi"],
+            room_fit=["meeting_room", "auditorium"],
+            notes=["override:videobar_like"],
+        )
+
+    if _is_portable_monitor(text):
+        fam = "monitor_portable"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=["presentation"],
+            interfaces=["hdmi", "usb"],
+            room_fit=["meeting_room", "auditorium"],
+            notes=["override:portable_monitor"],
+        )
+
+    # ---- normal scoring ----
     best_family: str | None = None
     best_score = 0.0
     best_notes: list[str] = []
@@ -91,13 +170,22 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
             notes.append(f"category:{item.category}")
 
         for kw in family.keywords:
-            kw_norm = kw.casefold().strip()
-            if kw_norm and kw_norm in text:
-                score += 2.0
-                notes.append(f"kw:{kw_norm}")
+            kw_norm = (kw or "").casefold().strip()
+            if not kw_norm:
+                continue
 
-        family_tokens = _tokenize(f"{family.key} {family.title}")
-        overlap = len(tokens & family_tokens)
+            # short keyword must match by token (tx != atx)
+            if len(kw_norm) <= 2:
+                if kw_norm in tokens:
+                    score += 2.0
+                    notes.append(f"kw_token:{kw_norm}")
+            else:
+                if kw_norm in text:
+                    score += 2.0
+                    notes.append(f"kw:{kw_norm}")
+
+        fam_tokens = _tokenize(f"{family.key} {family.title}")
+        overlap = len(tokens & fam_tokens)
         if overlap:
             score += min(2.0, overlap * 0.5)
             notes.append(f"title_overlap:{overlap}")
@@ -106,12 +194,6 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
             score += 4.0
         if family_key == "ptz_camera" and ("ptz" in text or "ndi" in text):
             score += 3.0
-        if family_key == "projection_screen" and ("электропривод" in text or "matte white" in text or "fiberglass" in text):
-            score += 4.0
-        if family_key == "video_mixer" and ("rgblink" in text or "видеомикшер" in text):
-            score += 4.0
-        if family_key == "wireless_receiver" and ("приемник" in text or "receiver" in text):
-            score += 3.0
 
         if score > best_score:
             best_score = score
@@ -119,9 +201,12 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
             best_notes = notes
 
     interfaces: list[str] = []
-    for iface, kws in _INTERFACE_KEYWORDS.items():
-        if any(kw in text for kw in kws):
-            interfaces.append(iface)
+    if "hdmi" in text:
+        interfaces.append("hdmi")
+    if "usb" in text or "type-c" in text or "usb-c" in text:
+        interfaces.append("usb")
+    if "dante" in text:
+        interfaces.append("dante")
 
     if best_family and best_family in km.families:
         family_def = km.families[best_family]
@@ -129,12 +214,10 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
         room_fit = _room_fit_for_family(best_family)
     else:
         capabilities = []
-        room_fit = []
+        room_fit = ["meeting_room", "auditorium"]
 
     confidence = min(1.0, best_score / 8.0) if best_family else 0.0
-    notes = list(best_notes)
-    if not best_family:
-        notes.append("unclassified")
+    notes = list(best_notes) if best_notes else (["unclassified"] if not best_family else [])
 
     return ClassifiedCandidate(
         candidate_id=item.candidate_id,

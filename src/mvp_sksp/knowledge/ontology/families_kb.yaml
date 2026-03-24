@@ -1,0 +1,144 @@
+version: 2
+families:
+  # --- reduce BYOD false positives ---
+  byod_usb_hdmi_gateway:
+    signature:
+      must_not:
+        - "видеостен"
+        - "видеостены"
+        - "контроллер видеостены"
+        - "video wall"
+        - "videowall"
+        - "видеобар"
+        - "videobar"
+        - "conferencebar"
+        - "soundbar"
+        - "монитор"
+        - "monitor"
+        - "on-lap"
+        - "экран"
+      must_have:
+        - "byod"
+        - "gateway"
+        - "presentation"
+        - "wireless"
+        - "dock"
+        - "usb-c"
+    tags:
+      domain: ["signal_transport"]
+      use_case: ["byod", "presentation"]
+      io: ["usb", "usb-c", "hdmi", "network"]
+
+  byod_wireless_presentation:
+    signature:
+      must_not:
+        - "видеостен"
+        - "контроллер видеостены"
+        - "video wall"
+        - "videowall"
+        - "монитор"
+        - "monitor"
+        - "on-lap"
+      must_have:
+        - "wireless"
+        - "presentation"
+        - "clickshare"
+        - "airmedia"
+        - "via"
+    tags:
+      domain: ["signal_transport"]
+      use_case: ["byod", "presentation"]
+      io: ["network", "wifi", "hdmi"]
+
+  # --- make videobar catch russian texts; avoid being mistaken as BYOD ---
+  videobar:
+    keywords:
+      - "videobar"
+      - "conferencebar"
+      - "soundbar"
+      - "видеобар"
+      - "все в одном"
+      - "all-in-one"
+      - "conference bar"
+    signature:
+      strong_keywords:
+        - "видеобар"
+        - "conference bar"
+        - "all-in-one"
+    tags:
+      domain: ["conference"]
+      use_case: ["vks", "byod"]
+      io: ["usb", "hdmi", "network"]
+
+  # --- stabilize speaker detection (so role_audio_playback is not missed) ---
+  wall_speaker:
+    keywords:
+      - "speaker"
+      - "колонка"
+      - "акуст"
+      - "настенн"
+      - "100v"
+    signature:
+      strong_keywords:
+        - "настенная акуст"
+        - "100v"
+    tags:
+      domain: ["conference"]
+      audio_power: ["100v", "passive"]
+
+  # --- stop treating USB extenders as plain Cat cable; classify them separately ---
+  cable_cat:
+    signature:
+      must_not:
+        - "usb 3.0"
+        - "usb3"
+        - "передачи usb"
+        - "комплект передачи usb"
+        - "extender"
+      must_have:
+        - "cat"
+        - "utp"
+        - "ftp"
+        - "stp"
+        - "витая"
+        - "патч"
+    keywords:
+      - "cat6"
+      - "cat6a"
+      - "витая пара"
+
+  usb_extender_over_cat:
+    title: "USB extender over Cat (комплект передачи USB по витой паре)"
+    categories: ["signal_transport"]
+    capabilities: ["byod", "presentation"]
+    keywords:
+      - "комплект передачи usb"
+      - "передачи usb"
+      - "usb 3.0"
+      - "usb по витой"
+      - "extender"
+      - "cat6a"
+      - "до 100 м"
+    interfaces: ["usb", "network"]
+    signature:
+      strong_keywords:
+        - "комплект передачи usb"
+        - "usb 3.0"
+        - "extender"
+
+  # --- improve miniPC classification so it doesn't leak into cabling ---
+  room_pc:
+    keywords:
+      - "pc"
+      - "ops"
+      - "windows"
+      - "неттоп"
+      - "мини пк"
+      - "mini pc"
+      - "ryzen"
+      - "ssd"
+      - "ddr"
+    signature:
+      strong_keywords:
+        - "неттоп"
+        - "mini pc"

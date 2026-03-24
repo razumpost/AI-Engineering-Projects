@@ -56,54 +56,45 @@ def compose_prompt(
     system = (
         "Ты проектный помощник по спецификации (СкСп).\n"
         "Верни ТОЛЬКО валидный JSON по контракту sksp.v1.\n"
-        "CandidatePool уже отфильтрован по topology, room_type и allowed_families.\n"
-        "Главное правило: сначала покрой обязательные роли из TopologyDecision и RolePlan, затем добери полезные вторичные позиции.\n"
-        "ЖЁСТКИЕ ОГРАНИЧЕНИЯ:\n"
+        "Главное правило: сначала покрой обязательные роли из TopologyDecision и RolePlan.\n"
+        "ВАЖНО:\n"
         "- operations — список ОПЕРАЦИЙ; у каждой операции ОБЯЗАТЕЛЬНО поле op\n"
-        "- использовать можно ТОЛЬКО candidate_id из CandidatePool\n"
-        "- для каждой роли используй ТОЛЬКО candidate_id из RoleCandidates для этой роли\n"
-        "- не используй display/panel candidates как камеры\n"
-        "- не используй projection_screen/LED/video_mixer в meeting_room\n"
-        "- не собирай параллельно несколько альтернативных topology в одной СкСп\n"
-        "- не дублируй строки\n"
-        "- followup_questions — список объектов: {question: string, priority: high|medium|low}\n"
+        "- Используй ТОЛЬКО candidate_id из CandidatePool.\n"
+        "- Если не хватает данных — сначала собери максимально полную СкСп из доступного, "
+        "а вопросы задавай только если без них нельзя выбрать тип/количество.\n"
+        "- Вопросы должны быть менеджерские (без VLAN/IGMP/EDID/HDCP/битрейтов).\n"
     )
 
     user = (
-        "Сформируй максимально полный первый черновик СкСп.\n"
-        "Приоритет принятия решения:\n"
-        "1) закрыть required roles из TopologyDecision\n"
-        "2) учесть RolePlan и preferred_families\n"
-        "3) использовать candidate_id из RoleCandidates\n"
-        "4) не добавлять альтернативные стеки оборудования\n"
-        "5) followup_questions только если после заполнения остаются критичные неопределённости\n\n"
-        f"UserRequest:\n{user_request}\n\n"
-        f"ProjectRequirements(JSON):\n{requirements.model_dump(mode='json')}\n\n"
-        f"TopologyDecision(JSON):\n{topology.model_dump(mode='json')}\n\n"
-        f"RolePlan(JSON):\n{_role_plan_dump(roles)}\n\n"
-        f"RoleCandidates(JSON):\n{role_candidates}\n\n"
-        f"CandidatePool(JSON):\n{pool.model_dump(mode='json')}\n\n"
-        f"JSON пример:\n{_SCHEMA_EXAMPLE}\n"
+        f"USER_REQUEST:\n{user_request}\n\n"
+        f"REQUIREMENTS:\n{requirements.model_dump(mode='json')}\n\n"
+        f"TOPOLOGY:\n{topology.model_dump(mode='json')}\n\n"
+        f"ROLE_PLAN:\n{_role_plan_dump(roles)}\n\n"
+        f"ROLE_CANDIDATES (лучшее для покрытия ролей):\n{role_candidates}\n\n"
+        "CANDIDATE_POOL (items/tasks):\n"
+        f"items={len(pool.items)} tasks={len(pool.tasks)}\n"
+        "Схема ответа (пример):\n"
+        f"{_SCHEMA_EXAMPLE}\n\n"
+        "Требования к operations:\n"
+        "- для add_line: op='add_line', item.candidate_id обязателен\n"
+        "- для replace_line: op='replace_line', target.line_id обязателен\n"
+        "- qty должно быть числом > 0\n"
+        "- evidence_task_ids должны быть реальными id задач Bitrix (если есть)\n"
     )
+
     return PromptBundle(system=system, user=user)
 
 
-def patch_prompt(patch_text: str, current_spec: Spec, pool: CandidatePool) -> PromptBundle:
+def patch_prompt(patch_text: str, spec: Spec, pool: CandidatePool) -> PromptBundle:
     system = (
-        "Ты проектный помощник по правкам СкСп.\n"
+        "Ты редактор СкСп.\n"
         "Верни ТОЛЬКО валидный JSON по контракту sksp.v1.\n"
-        "ВАЖНО:\n"
-        "- operations — список ОПЕРАЦИЙ; у каждой операции ОБЯЗАТЕЛЬНО поле op\n"
-        "- если пользователь пишет 'замени' — используй replace_line (НЕ add_line)\n"
-        "- followup_questions — список объектов: {question: string, priority: high|medium|low}\n"
+        "Не создавай дубликаты: replace_line вместо add_line, если пользователь сказал 'замени'.\n"
     )
-
     user = (
-        "Применить правку к текущей спецификации через operations.\n"
-        "Если неоднозначно — operations=[] и 1-3 вопроса.\n\n"
-        f"PatchText:\n{patch_text}\n\n"
-        f"CurrentSpec(JSON):\n{current_spec.model_dump(mode='json')}\n\n"
-        f"CandidatePool(JSON):\n{pool.model_dump(mode='json')}\n\n"
-        f"JSON пример:\n{_SCHEMA_EXAMPLE}\n"
+        f"PATCH_TEXT:\n{patch_text}\n\n"
+        f"CURRENT_SPEC:\n{spec.model_dump(mode='json')}\n\n"
+        f"CANDIDATE_POOL:\nitems={len(pool.items)} tasks={len(pool.tasks)}\n\n"
+        "Верни operations для правки, не пересобирай всё заново."
     )
     return PromptBundle(system=system, user=user)

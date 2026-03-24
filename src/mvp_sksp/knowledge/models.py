@@ -28,6 +28,18 @@ class RoleDef(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class FamilySignatureDef(BaseModel):
+    """Deterministic gates for family matching.
+
+    - must_have: if non-empty, at least one token must be present in text
+    - must_not: if any token present, family is rejected
+    - strong_keywords: additive high-signal tokens
+    """
+    must_have: list[str] = Field(default_factory=list)
+    must_not: list[str] = Field(default_factory=list)
+    strong_keywords: list[str] = Field(default_factory=list)
+
+
 class FamilyDef(BaseModel):
     key: str
     title: str
@@ -36,6 +48,10 @@ class FamilyDef(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     interfaces: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+    # KB extensions (safe defaults; editable via families_kb.yaml overrides)
+    tags: dict[str, list[str]] = Field(default_factory=dict)
+    signature: FamilySignatureDef = Field(default_factory=FamilySignatureDef)
 
 
 class DependencyRule(BaseModel):

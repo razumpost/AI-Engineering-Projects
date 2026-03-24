@@ -36,7 +36,7 @@ def _candidate_quality(item: Any) -> float:
         score += 1.0
     if getattr(item, "unit_price_rub", None) not in (None, "", 0, 0.0):
         score += 0.75
-    if getattr(item, "description", None):
+    if getattr(item, "description", None) or getattr(item, "name", None):
         score += 0.5
     evidence = getattr(item, "evidence_task_ids", None) or []
     if evidence:
@@ -51,34 +51,23 @@ def _role_score(
     topology: TopologyDecision,
     requirements: ProjectRequirements,
 ) -> float:
-    score = cls.family_confidence * 10.0 + _candidate_quality(item)
+    score = 0.0
+    score += float(getattr(cls, "family_confidence", 0.0) or 0.0) * 10.0
+    score += _candidate_quality(item)
 
-    if cls.family in role.preferred_families:
+    if cls.family in (role.preferred_families or []):
         score += 4.0
-    if cls.family in topology.preferred_families.get(role.role_key, []):
+    if cls.family in (topology.preferred_families.get(role.role_key, []) if topology.preferred_families else []):
         score += 3.0
-    if requirements.room_type in cls.room_fit:
+    if requirements.room_type in (cls.room_fit or []):
         score += 1.0
 
-    text = " ".join(
-        [
-            str(getattr(item, "sku", "") or ""),
-            str(getattr(item, "manufacturer", "") or ""),
-            str(getattr(item, "name", "") or ""),
-            str(getattr(item, "description", "") or ""),
-        ]
-    ).casefold()
+    # HARD safety gates
+    if requirements.room_type == "meeting_room" and cls.family in {"videowall_controller", "speaker_100v", "led_cabinet"}:
+        score -= 10_000.0
 
-    if role.role_key.startswith("room_camera") and ("ptz" in text or "ndi" in text):
-        score += 2.0
-    if role.role_key == "room_display_main" and ("интерактив" in text or "panel" in text or "display" in text):
-        score += 1.5
-    if role.role_key == "room_audio_capture" and (
-        "делегат" in text or "chairman" in text or "gooseneck" in text or "микрофон" in text
-    ):
-        score += 1.0
-    if role.role_key == "room_byod_ingest" and ("byod" in text or "usb-c" in text or "type-c" in text):
-        score += 2.0
+    if topology.topology_key == "meeting_room_delegate_dsp" and cls.family == "videobar":
+        score -= 10_000.0
 
     return score
 
@@ -108,23 +97,6 @@ def _task_ids_from_items(items: Iterable[Any]) -> set[int]:
     return out
 
 
-def _preserve_order_ids(items: list[Any], selected_ids: set[str]) -> list[str]:
-    out: list[str] = []
-    for item in items:
-        cid = getattr(item, "candidate_id")
-        if cid in selected_ids:
-            out.append(cid)
-    return out
-
-
-def _top_n_for_role(role_key: str, required: bool) -> int:
-    if role_key == "room_audio_capture":
-        return 2
-    if role_key == "room_cabling_and_accessories":
-        return 2
-    return 1 if required else 1
-
-
 def build_filtered_pool_for_coverage(
     *,
     pool: Any,
@@ -132,46 +104,67 @@ def build_filtered_pool_for_coverage(
     topology: TopologyDecision,
     roles: list[ExpandedRole],
 ) -> CoveragePlannerResult:
-    items = list(getattr(pool, "items", []))
-    tasks = list(getattr(pool, "tasks", []))
+    items = list(getattr(pool, "items", []) or [])
+    tasks = list(getattr(pool, "tasks", []) or [])
 
     classified = classify_candidates(items)
     by_candidate_id = {c.candidate_id: c for c in classified}
     item_by_id = {getattr(i, "candidate_id"): i for i in items}
 
-    forbidden = forbidden_families_for_requirements(requirements)
+    forbidden = set(forbidden_families_for_requirements(requirements))
+
     eligible_ids: set[str] = set()
     dropped_ids: set[str] = set()
     warnings: list[str] = []
 
     for cls in classified:
         cid = cls.candidate_id
-        if not cls.family:
+        item = item_by_id.get(cid)
+
+        if not cls.family or item is None:
             dropped_ids.add(cid)
             continue
+
         if cls.family in forbidden:
             dropped_ids.add(cid)
             continue
+
+        # HARD meeting_room bans
+        if requirements.room_type == "meeting_room" and cls.family in {"videowall_controller", "speaker_100v", "led_cabinet"}:
+            dropped_ids.add(cid)
+            continue
+
+        # HARD topology ban
+        if topology.topology_key == "meeting_room_delegate_dsp" and cls.family == "videobar":
+            dropped_ids.add(cid)
+            continue
+
         if cls.room_fit and requirements.room_type not in cls.room_fit:
             dropped_ids.add(cid)
             continue
+
         eligible_ids.add(cid)
 
-    role_priority = {r.role_key: idx for idx, r in enumerate(roles)}
+    role_debug: list[RoleCoverageDebug] = []
+    kept_ids: set[str] = set()
+
+    # deterministic role order: required first
     ordered_roles = sorted(
         roles,
-        key=lambda r: (
-            0 if r.role_key in topology.required_roles else 1,
-            role_priority.get(r.role_key, 999),
-        ),
+        key=lambda r: (0 if r.role_key in topology.required_roles else 1, r.role_key),
     )
 
-    kept_ids: set[str] = set()
-    role_debug: list[RoleCoverageDebug] = []
-
     for role in ordered_roles:
-        debug = RoleCoverageDebug(role_key=role.role_key, required=role.role_key in topology.required_roles)
-        allowed = set(role.allowed_families)
+        debug = RoleCoverageDebug(role_key=role.role_key, required=role.required)
+
+        allowed = set(role.allowed_families or [])
+        if topology.topology_key == "meeting_room_delegate_dsp":
+            allowed.discard("videobar")
+        if requirements.room_type == "meeting_room":
+            allowed.discard("videowall_controller")
+            allowed.discard("speaker_100v")
+            allowed.discard("led_cabinet")
+
         if not allowed:
             debug.warnings.append("no_allowed_families")
             role_debug.append(debug)
@@ -188,9 +181,13 @@ def build_filtered_pool_for_coverage(
             matched.append((_role_score(item, cls, role, topology, requirements), item, cls))
 
         matched.sort(key=lambda x: x[0], reverse=True)
-        selected = matched[: _top_n_for_role(role.role_key, debug.required)]
 
-        if not selected and debug.required:
+        top_n = 1
+        if role.role_key == "room_cabling_and_accessories":
+            top_n = 3
+
+        selected = matched[:top_n]
+        if not selected and role.role_key in topology.required_roles:
             debug.warnings.append("uncovered_required_role")
             warnings.append(f"Role {role.role_key} has no matching candidates in filtered pool")
 
@@ -202,18 +199,36 @@ def build_filtered_pool_for_coverage(
 
         role_debug.append(debug)
 
-    kept_items = [item_by_id[cid] for cid in _preserve_order_ids(items, kept_ids)]
+    # keep a few "support" families if available
+    support_families = {"managed_switch", "poe_switch", "dsp", "wireless_receiver", "conference_controller", "presentation_switcher"}
+    for cid in list(eligible_ids):
+        if cid in kept_ids:
+            continue
+        cls = by_candidate_id.get(cid)
+        if cls and cls.family in support_families:
+            kept_ids.add(cid)
+
+    kept_in_order = [getattr(i, "candidate_id") for i in items if getattr(i, "candidate_id") in kept_ids]
+    kept_items = [item_by_id[cid] for cid in kept_in_order]
+
     kept_task_ids = _task_ids_from_items(kept_items)
-    kept_tasks = [t for t in tasks if getattr(t, "task_id", None) in kept_task_ids]
-    if not kept_tasks:
-        kept_tasks = tasks[:]
+    kept_tasks = [t for t in tasks if getattr(t, "task_id", None) in kept_task_ids] or tasks[:]
 
     filtered_pool = _rebuild_pool_like(pool, kept_tasks, kept_items)
 
     return CoveragePlannerResult(
         filtered_pool=filtered_pool,
-        kept_candidate_ids=list(_preserve_order_ids(items, kept_ids)),
-        dropped_candidate_ids=list(_preserve_order_ids(items, dropped_ids)),
+        kept_candidate_ids=kept_in_order,
+        dropped_candidate_ids=[getattr(i, "candidate_id") for i in items if getattr(i, "candidate_id") in dropped_ids],
         role_debug=role_debug,
         warnings=warnings,
     )
+
+
+def items_to_preserve_order(items: list[Any], selected_ids: set[str]) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        cid = getattr(item, "candidate_id")
+        if cid in selected_ids:
+            out.append(cid)
+    return out

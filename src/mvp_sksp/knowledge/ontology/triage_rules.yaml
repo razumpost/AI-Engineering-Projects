@@ -1,0 +1,23 @@
+version: 2
+triage_rules:
+  keywords:
+    audio_100v:
+      - "100v"
+      - "70v"
+      - "трансляц"
+      - "speaker line"
+      - "линия 100"
+    videowall:
+      - "видеостен"
+      - "video wall"
+      - "videowall"
+      - "1x4"
+      - "контроллер видеостены"
+    amp_any:
+      - "усилитель"
+      - "amplifier"
+      - "power amp"
+  families:
+    speakers: ["wall_speaker", "ceiling_speaker", "soundbar"]
+    amplifiers: ["amplifier"]
+    byod: ["byod_usb_hdmi_gateway", "byod_wireless_presentation", "usb_c_dock"]

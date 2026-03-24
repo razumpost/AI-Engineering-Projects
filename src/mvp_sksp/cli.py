@@ -9,7 +9,8 @@ from dotenv import load_dotenv  # type: ignore
 from .config import Settings
 from .llm.client import YandexFM, YandexFMConfig
 from .llm.prompts import compose_prompt, patch_prompt
-from .persistence.snapshot_store import load_last_valid, make_run_paths
+from .persistence.snapshot_store import make_run_paths, update_last_valid
+from .pipeline.draft_seed import seed_spec_from_role_candidates
 from .pipeline.export import export_xlsx, render_markdown
 from .pipeline.orchestrator import compose, patch
 from .pipeline.postprocess import postprocess_spec
@@ -68,34 +69,12 @@ def main() -> int:
         print("[debug] requirements =", requirements.model_dump(mode="json"))
         print("[debug] topology =", topology.model_dump(mode="json"))
         print("[debug] role_plan =", [r.role_key for r in role_plan])
-        for r in role_plan[:12]:
-            print(
-                "[debug] role",
-                r.role_key,
-                "allowed=",
-                r.allowed_families,
-                "preferred=",
-                r.preferred_families,
-                "qty=",
-                r.suggested_qty,
-            )
         print("[debug] raw_pool items =", len(raw_pool.items), "tasks =", len(raw_pool.tasks))
         print("[debug] filtered_pool items =", len(pool.items), "tasks =", len(pool.tasks))
-        print("[debug] kept_candidate_ids =", coverage.kept_candidate_ids[:20])
+        print("[debug] kept_candidate_ids =", coverage.kept_candidate_ids[:25])
         print("[debug] role_candidates =", role_candidates)
         if coverage.warnings:
             print("[debug] coverage warnings =", coverage.warnings)
-        for d in coverage.role_debug:
-            print(
-                "[debug] coverage role",
-                d.role_key,
-                "selected=",
-                d.selected_candidate_ids,
-                "families=",
-                d.selected_families,
-                "warnings=",
-                d.warnings,
-            )
 
     llm = YandexFM(
         YandexFMConfig(
@@ -119,21 +98,29 @@ def main() -> int:
         role_candidates=role_candidates,
     )
 
+    seed_spec = seed_spec_from_role_candidates(
+        request_text=args.request,
+        pool=pool,
+        role_candidates=role_candidates,
+        requirements=requirements,
+        topology=topology,
+    )
+
     try:
         spec = compose(llm=llm, run=run, system=pb.system, user=pb.user, pool=pool, request_text=args.request)
-        spec = postprocess_spec(
-            spec=spec,
-            filtered_pool=pool,
-            source_pool=raw_pool,
-            requirements=requirements,
-            topology=topology,
-            roles=role_plan,
-        )
     except Exception as e:
-        spec = load_last_valid(run)
         print(f"[ERROR] compose failed: {e}")
-        if spec is None:
-            return 2
+        spec = seed_spec
+
+    spec = postprocess_spec(
+        spec=spec,
+        filtered_pool=pool,
+        source_pool=raw_pool,
+        requirements=requirements,
+        topology=topology,
+        roles=role_plan,
+    )
+    update_last_valid(run, spec)
 
     print(render_markdown(spec, pool=pool, settings=s))
     xlsx_path = export_xlsx(spec, run.run_dir / "sksp.xlsx", pool=pool, settings=s)
@@ -163,17 +150,19 @@ def main() -> int:
         pb = patch_prompt(text, spec, current_pool)
         try:
             spec = patch(llm=llm, run=run, system=pb.system, user=pb.user, pool=current_pool, patch_text=text)
-            spec = postprocess_spec(
-                spec=spec,
-                filtered_pool=current_pool,
-                source_pool=current_pool,
-                requirements=requirements,
-                topology=topology,
-                roles=role_plan,
-            )
         except Exception as e:
             print(f"[ERROR] patch failed: {e}")
-            spec = load_last_valid(run) or spec
+            # В интерактиве: НЕ откатываемся на старую чужую — оставляем текущую
+            # и продолжаем.
+        spec = postprocess_spec(
+            spec=spec,
+            filtered_pool=current_pool,
+            source_pool=current_pool,
+            requirements=requirements,
+            topology=topology,
+            roles=role_plan,
+        )
+        update_last_valid(run, spec)
 
         print(render_markdown(spec, pool=current_pool, settings=s))
         xlsx_path = export_xlsx(spec, run.run_dir / "sksp.xlsx", pool=current_pool, settings=s)
