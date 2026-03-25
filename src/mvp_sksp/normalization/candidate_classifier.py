@@ -44,28 +44,21 @@ def _tokenize(text: str) -> set[str]:
 def _room_fit_for_family(family: str) -> list[str]:
     if family.startswith("videowall_") or family == "videowall_controller":
         return ["videowall"]
-    if family.startswith("led_"):
+    if family.startswith("led_") or family == "led_cabinet":
         return ["led_screen", "auditorium"]
-    if family in {"speaker_100v"}:
+    if family == "speaker_100v":
         return ["auditorium"]
     return ["meeting_room", "auditorium"]
 
 
 def _is_videowall_like(text: str) -> bool:
-    if "видеостен" in text or "videowall" in text:
-        return True
-    if "контроллер" in text and ("видеостен" in text or "1x4" in text or "2x2" in text or "3x3" in text or "4x4" in text):
-        return True
-    if "wall controller" in text:
-        return True
-    return False
+    return ("видеостен" in text) or ("videowall" in text) or (
+        "контроллер" in text and ("1x4" in text or "2x2" in text or "3x3" in text or "4x4" in text)
+    )
 
 
 def _is_100v_speaker(text: str) -> bool:
-    if "100v" in text or "100 v" in text or "70v" in text or "70 v" in text:
-        if "акуст" in text or "speaker" in text or "колон" in text:
-            return True
-    return False
+    return (("100v" in text or "100 v" in text or "70v" in text or "70 v" in text) and ("акуст" in text or "speaker" in text or "колон" in text))
 
 
 def _is_led_like(text: str) -> bool:
@@ -83,9 +76,25 @@ def _is_videobar_like(text: str) -> bool:
 
 
 def _is_portable_monitor(text: str) -> bool:
-    if "on-lap" in text or "gechic" in text:
+    return ("on-lap" in text) or ("gechic" in text) or ("портативн" in text and "монитор" in text)
+
+
+def _is_mounting(text: str) -> bool:
+    if "креплен" in text or "кроншт" in text or "mount" in text:
+        if "акуст" in text or "speaker" in text or "soundbar" in text:
+            return False
         return True
-    if "портативн" in text and "монитор" in text:
+    return False
+
+
+def _is_hdmi_splitter(text: str, tokens: set[str]) -> bool:
+    if "сплиттер" in text or "splitter" in text:
+        return True
+    if ("1:4" in text or "1x4" in text) and ("hdmi" in text):
+        return True
+    if ("de-эмбед" in text or "de-embed" in text or "скалир" in text or "scaling" in text) and ("hdmi" in text):
+        return True
+    if "1:4" in tokens and "hdmi" in text:
         return True
     return False
 
@@ -95,7 +104,7 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
     text = _text(item)
     tokens = _tokenize(text)
 
-    # ---- hard overrides (must be stable) ----
+    # --- hard overrides ---
     if _is_videowall_like(text):
         fam = "videowall_controller"
         return ClassifiedCandidate(
@@ -156,7 +165,31 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
             notes=["override:portable_monitor"],
         )
 
-    # ---- normal scoring ----
+    if _is_mounting(text):
+        fam = "mounting_kit"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=[],
+            interfaces=[],
+            room_fit=["meeting_room", "auditorium"],
+            notes=["override:mounting"],
+        )
+
+    if _is_hdmi_splitter(text, tokens):
+        fam = "hdmi_splitter"
+        return ClassifiedCandidate(
+            candidate_id=item.candidate_id,
+            family=fam,
+            family_confidence=1.0,
+            capabilities=["presentation"],
+            interfaces=["hdmi"],
+            room_fit=["meeting_room", "auditorium"],
+            notes=["override:hdmi_splitter"],
+        )
+
+    # --- normal scoring against knowledge map ---
     best_family: str | None = None
     best_score = 0.0
     best_notes: list[str] = []
@@ -173,8 +206,6 @@ def classify_candidate(item: CandidateLike) -> ClassifiedCandidate:
             kw_norm = (kw or "").casefold().strip()
             if not kw_norm:
                 continue
-
-            # short keyword must match by token (tx != atx)
             if len(kw_norm) <= 2:
                 if kw_norm in tokens:
                     score += 2.0
