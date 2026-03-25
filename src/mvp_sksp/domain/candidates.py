@@ -3,87 +3,85 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
-
-from .spec import Money, norm_key
+from pydantic import BaseModel, Field
 
 
-class CandidateItem(BaseModel):
-    """Candidate equipment item retrieved from suppliers/tasks/previous SKSP."""
-    model_config = ConfigDict(extra="forbid")
+class Candidate(BaseModel):
+    """Atomic KB item candidate (retrieved from SKSP/prices/tasks etc.)."""
 
     candidate_id: str
-    category: str
-
     sku: Optional[str] = None
     manufacturer: Optional[str] = None
-    model: Optional[str] = None
-
     name: str
-    description: str
+    description: Optional[str] = None
+    category: Optional[str] = None
 
-    unit_price_rub: Optional[Decimal] = None
-    price_source: Optional[str] = None
+    price: Optional[Decimal] = None
+    currency: Optional[str] = None
+    unit: Optional[str] = None
+    url: Optional[str] = None
 
-    evidence_task_ids: list[int] = Field(default_factory=list)
     meta: dict[str, Any] = Field(default_factory=dict)
 
-    def money(self) -> Optional[Money]:
-        if self.unit_price_rub is None:
-            return None
-        return Money(amount=Decimal(str(self.unit_price_rub)), currency="RUB")
 
-    def signature(self) -> str:
-        if self.sku and norm_key(self.sku):
-            return f"sku:{norm_key(self.sku)}"
-        mm = ":".join([norm_key(self.manufacturer or ""), norm_key(self.model or "")]).strip(":")
-        if mm and mm != ":":
-            return f"mm:{mm}"
-        return f"desc:{norm_key((self.name or '') + ' ' + (self.description or ''))}"
+class CandidateMergePolicy(BaseModel):
+    """Merge policy for combining candidates from multiple KB sources."""
+
+    price_priority: list[str] = Field(default_factory=lambda: ["supplier_price", "sksp_snapshot"])
+    description_priority: list[str] = Field(default_factory=lambda: ["sksp_snapshot", "supplier_price"])
 
 
-class CandidateTask(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+def merge_candidate_fields(
+    primary: Candidate,
+    secondary: Candidate,
+    primary_source: str,
+    secondary_source: str,
+    policy: CandidateMergePolicy | None = None,
+) -> Candidate:
+    """Merge `primary` + `secondary` into one Candidate following project requirements.
 
-    task_id: int
-    title: str
-    url: str
-    similarity: float = 0.0
-    snippet: str = ""
+    Requirements:
+      - price: prioritize supplier chat price items
+      - description: prioritize SKSP snapshots
+      - never invent missing data; only select from existing fields
+    """
+    pol = policy or CandidateMergePolicy()
 
+    def _pick_by_priority(
+        field_name: str,
+        a: Any,
+        b: Any,
+        prio: list[str],
+    ) -> Any:
+        if a is not None and (primary_source in prio) and (secondary_source in prio):
+            return a if prio.index(primary_source) <= prio.index(secondary_source) else b
+        if a is not None:
+            return a
+        return b
 
-class CandidatePool(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # price and currency are linked
+    price = _pick_by_priority("price", primary.price, secondary.price, pol.price_priority)
+    currency = primary.currency if price == primary.price else secondary.currency
+    if price is None:
+        currency = primary.currency or secondary.currency
 
-    items: list[CandidateItem] = Field(default_factory=list)
-    tasks: list[CandidateTask] = Field(default_factory=list)
+    description = _pick_by_priority(
+        "description",
+        primary.description,
+        secondary.description,
+        pol.description_priority,
+    )
 
-    def by_id(self) -> dict[str, CandidateItem]:
-        return {c.candidate_id: c for c in self.items}
-
-    def merge(self, other: "CandidatePool") -> "CandidatePool":
-        """Union two pools; dedupe items by candidate_id and signature; tasks by task_id."""
-        items_by_id: dict[str, CandidateItem] = {i.candidate_id: i for i in self.items}
-        items_by_sig: dict[str, CandidateItem] = {i.signature(): i for i in self.items}
-
-        for i in other.items:
-            if i.candidate_id in items_by_id:
-                continue
-            sig = i.signature()
-            if sig in items_by_sig:
-                cur = items_by_sig[sig]
-                score_cur = int(cur.unit_price_rub is not None) + int(bool(cur.evidence_task_ids))
-                score_new = int(i.unit_price_rub is not None) + int(bool(i.evidence_task_ids))
-                if score_new > score_cur:
-                    items_by_sig[sig] = i
-                    items_by_id[i.candidate_id] = i
-                continue
-            items_by_sig[sig] = i
-            items_by_id[i.candidate_id] = i
-
-        tasks_by_id: dict[int, CandidateTask] = {t.task_id: t for t in self.tasks}
-        for t in other.tasks:
-            if t.task_id not in tasks_by_id:
-                tasks_by_id[t.task_id] = t
-
-        return CandidatePool(items=list(items_by_id.values()), tasks=list(tasks_by_id.values()))
+    return Candidate(
+        candidate_id=primary.candidate_id,
+        sku=primary.sku or secondary.sku,
+        manufacturer=primary.manufacturer or secondary.manufacturer,
+        name=primary.name or secondary.name,
+        description=description,
+        category=primary.category or secondary.category,
+        price=price,
+        currency=currency,
+        unit=primary.unit or secondary.unit,
+        url=primary.url or secondary.url,
+        meta={**(secondary.meta or {}), **(primary.meta or {})},
+    )

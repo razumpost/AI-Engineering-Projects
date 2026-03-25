@@ -4,342 +4,566 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from pathlib import Path
-from typing import Any, Optional
+from decimal import Decimal
+from functools import lru_cache
+from typing import Any, Iterable
 
-import kuzu
-from dotenv import load_dotenv  # type: ignore
-from sqlalchemy import bindparam, create_engine, text
-
-from ..domain.candidates import CandidateItem, CandidatePool, CandidateTask
-from .bitrix_links import task_url
+from ..domain.candidates import Candidate
+from ..domain.spec import Evidence, EvidenceSource
+from ..knowledge.loader import load_knowledge_map
+from ..planning.plan_models import ClassifiedCandidate
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+@dataclass(frozen=True)
+class RagHit:
+    """Normalized retrieval hit.
+
+    This wrapper exists to keep the rest of the pipeline deterministic while
+    allowing multiple backends (vector, graph, hybrid) to supply candidates.
+    """
+
+    candidate: Candidate
+    score: float
+    evidence: Evidence
 
 
-def _load_env() -> None:
-    load_dotenv(dotenv_path=str(_repo_root() / ".env"), override=False)
+_PRICE_RE = re.compile(
+    r"(?P<price>\d{1,3}(?:[ \u00A0]\d{3})*(?:[.,]\d{1,2})?)\s*(?P<cur>руб\.?|р\.?|₽|rub|rur|usd|\$|eur|€)?",
+    re.IGNORECASE,
+)
 
 
-def _safe_json(v: Any) -> dict[str, Any]:
-    if isinstance(v, dict):
-        return v
-    if isinstance(v, str) and v.strip():
-        try:
-            return json.loads(v)
-        except Exception:
-            return {}
-    return {}
-
-
-def _to_decimal(v: Any) -> Optional[Decimal]:
-    if v is None:
+def _as_decimal(val: Any) -> Decimal | None:
+    if val is None:
         return None
-    try:
-        if isinstance(v, Decimal):
-            return v
-        if isinstance(v, (int, float)):
-            return Decimal(str(v))
-        s = str(v).strip().replace("\u00a0", " ")
-        s = s.replace("RUB", "").replace("руб", "").replace("₽", "")
-        s = s.replace(" ", "").replace(",", ".")
-        m = re.search(r"(\d+(?:\.\d+)?)", s)
-        if not m:
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, (int, float)):
+        return Decimal(str(val))
+    if isinstance(val, str):
+        s = val.strip().replace("\u00A0", " ").replace(" ", "").replace(",", ".")
+        if not s:
             return None
-        return Decimal(m.group(1))
-    except (InvalidOperation, Exception):
+        try:
+            return Decimal(s)
+        except Exception:
+            return None
+    return None
+
+
+def _extract_price(text: str) -> tuple[Decimal | None, str | None]:
+    if not text:
+        return None, None
+    m = _PRICE_RE.search(text)
+    if not m:
+        return None, None
+    price = _as_decimal(m.group("price"))
+    cur = (m.group("cur") or "").strip().lower() or None
+    if cur in {"руб", "руб.", "р", "р.", "₽", "rub", "rur"}:
+        cur = "RUB"
+    if cur in {"usd", "$"}:
+        cur = "USD"
+    if cur in {"eur", "€"}:
+        cur = "EUR"
+    return price, cur
+
+
+def _norm_sku(sku: str | None) -> str | None:
+    if not sku:
         return None
-
-
-def _make_engine():
-    _load_env()
-    dsn = (os.getenv("DATABASE_URL") or os.getenv("DB_DSN") or "").strip()
-    if not dsn:
+    s = sku.strip()
+    if not s:
         return None
-    return create_engine(dsn, pool_pre_ping=True)
+    return re.sub(r"\s+", "", s).casefold()
 
 
-def _keyword_tasks_postgres(engine, query: str, limit: int = 30) -> list[CandidateTask]:
-    # optional: use Postgres only for nicer titles/urls; items come from Kuzu
-    terms = [t for t in re.split(r"[^\wА-Яа-я]+", (query or "").lower()) if len(t) >= 4][:8]
-    if not terms:
-        return []
+def _candidate_signature(c: Candidate) -> str:
+    """Stable signature for merging hits from different KB sources."""
+    parts = [
+        _norm_sku(c.sku) or "",
+        (c.manufacturer or "").strip().casefold(),
+        (c.name or "").strip().casefold(),
+        (c.category or "").strip().casefold(),
+    ]
+    return "|".join(parts).strip("|")
 
-    params: dict[str, Any] = {"limit": int(limit), "sources": ["bitrix_task", "task"]}
-    conds = []
-    for i, t in enumerate(terms):
-        params[f"p{i}"] = f"%{t}%"
-        p = f":p{i}"
-        conds.append(f"(d.title ILIKE {p} OR CAST(d.meta AS TEXT) ILIKE {p})")
-    where_any = " OR ".join(conds)
 
-    sql = (
-        text(
-            f"""
-            SELECT d.source_id, d.title, d.meta
-            FROM rag_documents d
-            WHERE d.source IN :sources
-              AND ({where_any})
-            ORDER BY d.updated_at DESC NULLS LAST
-            LIMIT :limit
-            """
-        )
-        .bindparams(bindparam("sources", expanding=True))
+def _safe_text(s: str | None) -> str:
+    return (s or "").strip()
+
+
+def _merge_text(primary: str | None, fallback: str | None) -> str | None:
+    p = _safe_text(primary)
+    if p:
+        return p
+    f = _safe_text(fallback)
+    return f or None
+
+
+def _merge_evidence(a: Evidence, b: Evidence) -> Evidence:
+    sources = list({*a.sources, *b.sources})
+    notes = [n for n in (a.notes + b.notes) if _safe_text(n)]
+    return Evidence(
+        sources=sources,
+        notes=notes,
+        source_ts=max(a.source_ts or 0, b.source_ts or 0),
+        source_type=a.source_type if (a.source_type == EvidenceSource.SUPPLIER_PRICE) else b.source_type,
     )
 
-    out: list[CandidateTask] = []
-    with engine.connect() as conn:
-        rows = conn.execute(sql, params).mappings().all()
 
-    for r in rows:
-        try:
-            tid = int(r["source_id"])
-        except Exception:
+def _merge_candidate_fields(
+    sksp: Candidate | None,
+    supplier: Candidate | None,
+) -> Candidate | None:
+    """Merge candidate fields following required priorities.
+
+    - price: supplier > sksp
+    - description: sksp > supplier
+    - do not invent missing fields
+    """
+    if not sksp and not supplier:
+        return None
+    base = sksp or supplier
+    assert base is not None
+
+    sksp_price = sksp.price if sksp else None
+    sup_price = supplier.price if supplier else None
+    sksp_cur = sksp.currency if sksp else None
+    sup_cur = supplier.currency if supplier else None
+
+    price = sup_price if sup_price is not None else sksp_price
+    currency = sup_cur if sup_price is not None else sksp_cur
+
+    desc = _merge_text(sksp.description if sksp else None, supplier.description if supplier else None)
+
+    return Candidate(
+        candidate_id=base.candidate_id,
+        sku=_merge_text(sksp.sku if sksp else None, supplier.sku if supplier else None),
+        manufacturer=_merge_text(sksp.manufacturer if sksp else None, supplier.manufacturer if supplier else None),
+        name=_merge_text(sksp.name if sksp else None, supplier.name if supplier else None) or base.name,
+        description=desc,
+        category=_merge_text(sksp.category if sksp else None, supplier.category if supplier else None),
+        price=price,
+        currency=currency,
+        unit=_merge_text(sksp.unit if sksp else None, supplier.unit if supplier else None),
+        url=_merge_text(sksp.url if sksp else None, supplier.url if supplier else None),
+        meta={**(supplier.meta or {}), **(sksp.meta or {})},
+    )
+
+
+def _merge_hits_by_signature(hits: list[RagHit]) -> list[RagHit]:
+    by_sig: dict[str, list[RagHit]] = {}
+    for h in hits:
+        sig = _candidate_signature(h.candidate)
+        by_sig.setdefault(sig, []).append(h)
+
+    merged: list[RagHit] = []
+    for sig, group in by_sig.items():
+        if len(group) == 1:
+            merged.append(group[0])
             continue
-        meta = _safe_json(r.get("meta"))
-        url = None
-        raw = meta.get("raw")
-        if isinstance(raw, dict):
-            url = raw.get("url") or raw.get("link")
-        url = url or meta.get("url") or meta.get("link") or task_url(tid)
+
+        supplier_hits = [h for h in group if h.evidence.source_type == EvidenceSource.SUPPLIER_PRICE]
+        sksp_hits = [h for h in group if h.evidence.source_type == EvidenceSource.SKSP_SNAPSHOT]
+
+        # pick best per source type by score
+        best_supplier = max(supplier_hits, key=lambda x: x.score) if supplier_hits else None
+        best_sksp = max(sksp_hits, key=lambda x: x.score) if sksp_hits else None
+
+        merged_candidate = _merge_candidate_fields(
+            sksp=best_sksp.candidate if best_sksp else None,
+            supplier=best_supplier.candidate if best_supplier else None,
+        )
+        if not merged_candidate:
+            continue
+
+        best = max(group, key=lambda x: x.score)
+        merged_evidence = best.evidence
+        for h in group:
+            if h is best:
+                continue
+            merged_evidence = _merge_evidence(merged_evidence, h.evidence)
+
+        merged.append(
+            RagHit(
+                candidate=merged_candidate,
+                score=max(h.score for h in group),
+                evidence=merged_evidence,
+            )
+        )
+
+    merged.sort(key=lambda x: x.score, reverse=True)
+    return merged
+
+
+@lru_cache(maxsize=1)
+def _km():
+    return load_knowledge_map()
+
+
+def _evidence_from_meta(meta: dict[str, Any]) -> Evidence:
+    st = int(meta.get("source_ts") or 0)
+    src = meta.get("source_type") or ""
+    if src == "supplier_price":
+        stype = EvidenceSource.SUPPLIER_PRICE
+    elif src == "sksp_snapshot":
+        stype = EvidenceSource.SKSP_SNAPSHOT
+    else:
+        stype = EvidenceSource.UNKNOWN
+    sources = []
+    if meta.get("source_url"):
+        sources.append(meta["source_url"])
+    if meta.get("source_doc_id"):
+        sources.append(str(meta["source_doc_id"]))
+    return Evidence(
+        sources=sources,
+        notes=[str(meta.get("source_note") or "")] if meta.get("source_note") else [],
+        source_ts=st,
+        source_type=stype,
+    )
+
+
+def _to_candidate(raw: dict[str, Any]) -> Candidate:
+    price = _as_decimal(raw.get("price"))
+    currency = raw.get("currency")
+    if price is None:
+        p, cur = _extract_price(_safe_text(raw.get("text") or raw.get("name") or raw.get("description")))
+        price = p
+        currency = currency or cur
+
+    meta = dict(raw.get("meta") or {})
+    for k in ("source_ts", "source_type", "source_url", "source_doc_id", "source_note"):
+        if k in raw:
+            meta[k] = raw[k]
+
+    return Candidate(
+        candidate_id=str(raw.get("candidate_id") or raw.get("id") or uuid4_str()),
+        sku=_safe_text(raw.get("sku")),
+        manufacturer=_safe_text(raw.get("manufacturer")),
+        name=_safe_text(raw.get("name") or raw.get("title") or raw.get("text") or "UNKNOWN"),
+        description=_safe_text(raw.get("description")),
+        category=_safe_text(raw.get("category")),
+        price=price,
+        currency=_safe_text(currency),
+        unit=_safe_text(raw.get("unit")),
+        url=_safe_text(raw.get("url")),
+        meta=meta,
+    )
+
+
+def uuid4_str() -> str:
+    import uuid
+
+    return str(uuid.uuid4())
+
+
+def _make_hit(raw: dict[str, Any], score: float) -> RagHit:
+    cand = _to_candidate(raw)
+    ev = _evidence_from_meta(cand.meta or {})
+    return RagHit(candidate=cand, score=float(score), evidence=ev)
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+
+def _graph_enabled() -> bool:
+    return os.environ.get("GRAPH_ENABLED", "1").strip() not in {"0", "false", "False"}
+
+
+def _kuzu_path() -> str | None:
+    p = os.environ.get("KUZU_DB_PATH") or os.environ.get("GRAPH_DB_PATH")
+    return p.strip() if p else None
+
+
+def _try_query_kuzu(query: str, parameters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Best-effort Kuzu query without hard dependency."""
+    db_path = _kuzu_path()
+    if not db_path or not _graph_enabled():
+        return []
+    try:
+        import kuzu  # type: ignore
+    except Exception:
+        return []
+
+    try:
+        db = kuzu.Database(db_path)
+        conn = kuzu.Connection(db)
+        res = conn.execute(query, parameters or {})
+        rows: list[dict[str, Any]] = []
+        while res.has_next():
+            row = res.get_next()
+            # Kuzu row supports dict conversion in newer versions; fall back otherwise.
+            if isinstance(row, dict):
+                rows.append(row)
+            else:
+                try:
+                    rows.append(row.to_dict())  # type: ignore[attr-defined]
+                except Exception:
+                    # stringify row as last resort
+                    rows.append({"_row": str(row)})
+        return rows
+    except Exception:
+        return []
+
+
+def _supplier_price_query(text: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Try to retrieve items from the *supplier chat price* subgraph.
+
+    We search across multiple likely label/property combinations to be robust
+    to ingest/schema drift.
+    """
+    q = """
+    MATCH (d)
+    WHERE
+      (LABEL(d) IN ['PriceDoc', 'SupplierPriceDoc', 'Document', 'File'] OR LABEL(d) IS NOT NULL)
+      AND (
+        (d.kind IS NOT NULL AND lower(d.kind) CONTAINS 'price') OR
+        (d.channel IS NOT NULL AND lower(d.channel) CONTAINS 'supplier') OR
+        (d.title IS NOT NULL AND lower(d.title) CONTAINS 'прайс') OR
+        (d.title IS NOT NULL AND lower(d.title) CONTAINS 'price')
+      )
+    WITH d
+    MATCH (d)-[r]->(it)
+    WHERE
+      (LABEL(it) IN ['PriceItem', 'LineItem', 'Item', 'SkuItem'] OR LABEL(it) IS NOT NULL)
+      AND (
+        (it.text IS NOT NULL AND lower(it.text) CONTAINS lower($q)) OR
+        (it.name IS NOT NULL AND lower(it.name) CONTAINS lower($q)) OR
+        (it.description IS NOT NULL AND lower(it.description) CONTAINS lower($q)) OR
+        (it.sku IS NOT NULL AND lower(it.sku) CONTAINS lower($q)) OR
+        (it.manufacturer IS NOT NULL AND lower(it.manufacturer) CONTAINS lower($q))
+      )
+    RETURN
+      it.sku AS sku,
+      it.manufacturer AS manufacturer,
+      coalesce(it.name, it.title, it.text) AS name,
+      it.description AS description,
+      it.category AS category,
+      it.price AS price,
+      it.currency AS currency,
+      it.unit AS unit,
+      it.url AS url,
+      coalesce(d.updated_at, d.ts, d.created_at, 0) AS source_ts,
+      'supplier_price' AS source_type,
+      coalesce(d.url, d.link, d.source_url) AS source_url,
+      coalesce(d.id, d.doc_id, d.file_id) AS source_doc_id,
+      coalesce(d.title, d.name, 'supplier price') AS source_note
+    ORDER BY source_ts DESC
+    LIMIT $limit
+    """
+    return _try_query_kuzu(q, {"q": text, "limit": int(limit)})
+
+
+def _sksp_snapshot_query(text: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Try to retrieve items from SKSP snapshots / tasks database ingested into graph."""
+    q = """
+    MATCH (d)
+    WHERE
+      (LABEL(d) IN ['SkspSnapshot', 'SKSP', 'Snapshot', 'Document', 'File'] OR LABEL(d) IS NOT NULL)
+      AND (
+        (d.kind IS NOT NULL AND lower(d.kind) CONTAINS 'sksp') OR
+        (d.title IS NOT NULL AND lower(d.title) CONTAINS 'сксп') OR
+        (d.title IS NOT NULL AND lower(d.title) CONTAINS 'sksp')
+      )
+    WITH d
+    MATCH (d)-[r]->(it)
+    WHERE
+      (LABEL(it) IN ['SkspItem', 'LineItem', 'Item', 'SkuItem'] OR LABEL(it) IS NOT NULL)
+      AND (
+        (it.text IS NOT NULL AND lower(it.text) CONTAINS lower($q)) OR
+        (it.name IS NOT NULL AND lower(it.name) CONTAINS lower($q)) OR
+        (it.description IS NOT NULL AND lower(it.description) CONTAINS lower($q)) OR
+        (it.sku IS NOT NULL AND lower(it.sku) CONTAINS lower($q)) OR
+        (it.manufacturer IS NOT NULL AND lower(it.manufacturer) CONTAINS lower($q))
+      )
+    RETURN
+      it.sku AS sku,
+      it.manufacturer AS manufacturer,
+      coalesce(it.name, it.title, it.text) AS name,
+      it.description AS description,
+      it.category AS category,
+      it.price AS price,
+      it.currency AS currency,
+      it.unit AS unit,
+      it.url AS url,
+      coalesce(d.updated_at, d.ts, d.created_at, 0) AS source_ts,
+      'sksp_snapshot' AS source_type,
+      coalesce(d.url, d.link, d.source_url) AS source_url,
+      coalesce(d.id, d.doc_id, d.file_id) AS source_doc_id,
+      coalesce(d.title, d.name, 'sksp snapshot') AS source_note
+    ORDER BY source_ts DESC
+    LIMIT $limit
+    """
+    return _try_query_kuzu(q, {"q": text, "limit": int(limit)})
+
+
+def retrieve_candidates_hybrid(query: str, limit: int = 50) -> list[RagHit]:
+    """Hybrid retrieval: supplier prices first, then SKSP snapshots, then fallback to empty.
+
+    This function is intentionally deterministic: ordering and merge priorities
+    are fixed, so manager receives repeatable outputs.
+    """
+    hits: list[RagHit] = []
+
+    for row in _supplier_price_query(query, limit=limit):
+        hits.append(_make_hit(row, score=0.9))
+
+    for row in _sksp_snapshot_query(query, limit=limit):
+        hits.append(_make_hit(row, score=0.8))
+
+    # Merge duplicates by signature, preserving priorities (price vs description).
+    hits = _merge_hits_by_signature(hits)
+
+    # Safety trim (keep deterministic ordering)
+    return hits[: int(limit)]
+
+
+def hits_to_classified_candidates(
+    hits: list[RagHit],
+) -> list[ClassifiedCandidate]:
+    """Convert RagHit to ClassifiedCandidate for downstream normalization."""
+    km = _km()
+    out: list[ClassifiedCandidate] = []
+    for h in hits:
         out.append(
-            CandidateTask(
-                task_id=tid,
-                title=str(r.get("title") or f"Task #{tid}"),
-                url=str(url),
-                similarity=0.0,
-                snippet="",
+            ClassifiedCandidate(
+                candidate_id=h.candidate.candidate_id,
+                sku=h.candidate.sku,
+                manufacturer=h.candidate.manufacturer,
+                name=h.candidate.name,
+                description=h.candidate.description,
+                category=h.candidate.category,
+                price=h.candidate.price,
+                currency=h.candidate.currency,
+                unit=h.candidate.unit,
+                url=h.candidate.url,
+                score=h.score,
+                meta=h.candidate.meta or {},
+                evidence=h.evidence,
+                # family is assigned later by classifier
+                family=None,
+                family_score=None,
+                room_fit=None,
+                notes=[],
             )
         )
     return out
 
 
-@dataclass(frozen=True)
-class GraphTask:
-    task_id: int
-    node_id: str
-    title: str
-    url: str
-    props_text: str
+def explain_hit(hit: RagHit) -> str:
+    """Human-readable reason for why this item was selected (manager-facing)."""
+    parts = []
+    if hit.candidate.sku:
+        parts.append(f"SKU: {hit.candidate.sku}")
+    if hit.candidate.manufacturer:
+        parts.append(f"бренд: {hit.candidate.manufacturer}")
+    if hit.candidate.price is not None:
+        cur = hit.candidate.currency or "RUB"
+        parts.append(f"цена: {hit.candidate.price} {cur}")
+
+    if hit.evidence.source_type == EvidenceSource.SUPPLIER_PRICE:
+        parts.append("источник: прайс поставщика (приоритет по цене)")
+    elif hit.evidence.source_type == EvidenceSource.SKSP_SNAPSHOT:
+        parts.append("источник: прошлые СКСП (приоритет по описанию)")
+    else:
+        parts.append("источник: неизвестен")
+
+    if hit.evidence.source_ts:
+        parts.append(f"актуальность(ts): {hit.evidence.source_ts}")
+
+    if hit.evidence.sources:
+        parts.append(f"ref: {hit.evidence.sources[0]}")
+    return " • ".join(parts)
 
 
-class KuzuGraph:
-    def __init__(self) -> None:
-        _load_env()
-        root = os.getenv("SYSTEM_ROOT_DIRECTORY") or ""
-        if not root:
-            raise RuntimeError("SYSTEM_ROOT_DIRECTORY is not set")
-        p = Path(root) / "databases" / "cognee_graph_kuzu"
-        if not p.exists():
-            raise RuntimeError(f"Kuzu graph file not found: {p}")
-        self.path = p
-
-        self.db = kuzu.Database(str(p))
-        self.conn = kuzu.Connection(self.db)
-
-    def fetch(self, query: str) -> list[dict[str, Any]]:
-        res = self.conn.execute(query)
-        cols = res.get_column_names()
-        out: list[dict[str, Any]] = []
-        while res.has_next():
-            row = res.get_next()
-            out.append({cols[i]: row[i] for i in range(len(cols))})
-        return out
-
-    def get_tasks(self, limit: int = 250) -> list[GraphTask]:
-        rows = self.fetch(
-            f"""
-            MATCH (t:Node)
-            WHERE t.type='Task'
-            RETURN t.id AS id, t.name AS name, t.properties AS props
-            LIMIT {int(limit)}
-            """
-        )
-        out: list[GraphTask] = []
-        for r in rows:
-            props_raw = r.get("props") or ""
-            props_text = props_raw if isinstance(props_raw, str) else json.dumps(props_raw, ensure_ascii=False)
-            props = _safe_json(props_raw)
-            tid = props.get("task_id")
-            try:
-                tid = int(tid)
-            except Exception:
-                continue
-            title = str(props.get("title") or props.get("name") or r.get("name") or f"Task #{tid}")
-            url = str(props.get("url") or props.get("link") or task_url(tid))
-            out.append(
-                GraphTask(
-                    task_id=tid,
-                    node_id=str(r.get("id")),
-                    title=title,
-                    url=url,
-                    props_text=props_text.lower(),
-                )
-            )
-        return out
-
-    def get_latest_snapshot_id(self, task_node_id: str) -> Optional[str]:
-        rows = self.fetch(
-            f"""
-            MATCH (t:Node)-[e]->(s:Node)
-            WHERE t.id='{task_node_id}'
-              AND e.relationship_name='has_snapshot'
-              AND s.type='Snapshot'
-            RETURN s.id AS sid, s.properties AS props
-            LIMIT 50
-            """
-        )
-        if not rows:
-            return None
-
-        best_sid: Optional[str] = None
-        best_ts = -1
-        for r in rows:
-            sid = str(r.get("sid"))
-            props = _safe_json(r.get("props"))
-            ts = props.get("updated_at_ts")
-            try:
-                ts_i = int(ts)
-            except Exception:
-                ts_i = -1
-            if ts_i > best_ts:
-                best_ts = ts_i
-                best_sid = sid
-        return best_sid or str(rows[0].get("sid"))
-
-    def get_snapshot_items(self, snapshot_id: str, limit: int = 220) -> list[dict[str, Any]]:
-        rows = self.fetch(
-            f"""
-            MATCH (s:Node)-[e1]->(i:Node)
-            WHERE s.id='{snapshot_id}'
-              AND e1.relationship_name='has_item'
-              AND i.type='Item'
-            OPTIONAL MATCH (i)-[e2]->(sc:Node)
-            WHERE e2.relationship_name='in_scope'
-              AND sc.type='Scope'
-            RETURN i.id AS iid,
-                   i.properties AS iprops,
-                   sc.name AS scope_name,
-                   sc.properties AS scprops
-            LIMIT {int(limit)}
-            """
-        )
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            ip = _safe_json(r.get("iprops"))
-            scp = _safe_json(r.get("scprops"))
-            scope_name = r.get("scope_name")
-            scope = ""
-            if isinstance(scope_name, str):
-                scope = scope_name.strip()
-            if not scope:
-                scope = str(scp.get("scope") or scp.get("name") or "").strip()
-
-            out.append(
-                {
-                    "sku": ip.get("sku"),
-                    "manufacturer": ip.get("manufacturer"),
-                    "desc": ip.get("desc") or ip.get("description") or ip.get("name"),
-                    "unit_price_rub": ip.get("unit_price_rub"),
-                    "scope": scope or "misc",
-                }
-            )
-        return out
+def normalize_query_text(transcript_text: str) -> str:
+    """Light normalization of transcript to create a robust retrieval prompt."""
+    t = transcript_text.strip()
+    t = re.sub(r"\s+", " ", t)
+    return t[:2000]
 
 
-def _pick_best_graph_tasks(tasks: list[GraphTask], query: str, k: int = 12) -> list[GraphTask]:
-    toks = [t for t in re.split(r"[^\wА-Яа-я]+", (query or "").lower()) if len(t) >= 4][:10]
-    if not toks:
-        return tasks[:k]
-    scored: list[tuple[int, GraphTask]] = []
-    for t in tasks:
-        score = sum(1 for x in toks if x in t.props_text)
-        scored.append((score, t))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    best = [t for s, t in scored if s > 0][:k]
-    if not best:
-        best = [t for _, t in scored][:k]
-    return best
+def build_rag_query_from_requirements(req: dict[str, Any]) -> str:
+    """Build a retrieval query string for hybrid retrieval.
 
-
-def retrieve_candidates(text: str, scope_whitelist: Optional[list[str]] = None) -> CandidatePool:
+    This is used after LLM parses transcript into structured requirements.
     """
-    Kuzu-direct retrieval:
-    - tasks + snapshots/items from Kuzu Node/EDGE
-    - optional Postgres keyword tasks to enrich titles/urls
-    - optional scope_whitelist filters items by category/scope (for patch-mode)
-    """
-    _load_env()
-    debug = os.getenv("MVP_SKSP_DEBUG") == "1"
+    bits: list[str] = []
+    room = (req.get("room_type") or "").strip()
+    if room:
+        bits.append(room)
 
-    whitelist_set = set(scope_whitelist) if scope_whitelist else None
+    caps = req.get("caps") or {}
+    for k, v in sorted(caps.items()):
+        if v:
+            bits.append(str(k))
 
-    g = KuzuGraph()
-    graph_tasks = g.get_tasks(limit=250)
-    picked = _pick_best_graph_tasks(graph_tasks, text, k=12)
+    flags = req.get("flags") or {}
+    for k, v in sorted(flags.items()):
+        if v:
+            bits.append(str(k))
 
-    if debug:
-        print("[debug] graph tasks total:", len(graph_tasks), "picked:", len(picked))
-        print("[debug] kuzu path:", g.path)
-        if whitelist_set:
-            print("[debug] scope_whitelist:", sorted(whitelist_set))
+    hints = req.get("hints") or []
+    for h in hints:
+        if isinstance(h, str) and h.strip():
+            bits.append(h.strip())
 
-    items: list[CandidateItem] = []
-    for gt in picked:
-        sid = g.get_latest_snapshot_id(gt.node_id)
-        if not sid:
-            if debug:
-                print("[debug] task", gt.task_id, "no snapshot")
+    s = " ".join(bits)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s or "сксп оборудование"
+
+
+def retrieve_for_project(req: dict[str, Any], limit: int = 80) -> list[RagHit]:
+    q = build_rag_query_from_requirements(req)
+    return retrieve_candidates_hybrid(q, limit=limit)
+
+
+def rank_and_trim(hits: list[RagHit], limit: int = 80) -> list[RagHit]:
+    """Optional additional trimming stage (kept deterministic)."""
+    # currently sorting done in merge
+    return hits[: int(limit)]
+
+
+def group_hits_by_family(
+    classified: list[ClassifiedCandidate],
+) -> dict[str, list[ClassifiedCandidate]]:
+    fam_map: dict[str, list[ClassifiedCandidate]] = {}
+    for c in classified:
+        if not c.family:
             continue
+        fam_map.setdefault(c.family, []).append(c)
+    for fam in fam_map:
+        fam_map[fam].sort(key=lambda x: float(x.score or 0.0), reverse=True)
+    return fam_map
 
-        rows = g.get_snapshot_items(sid, limit=220)
-        if debug:
-            print("[debug] task", gt.task_id, "snap", sid, "items", len(rows))
 
-        for idx, it in enumerate(rows):
-            scope = (str(it.get("scope") or "").strip() or "misc")
-            if whitelist_set and scope not in whitelist_set:
-                continue
+def pick_top_per_family(
+    fam_map: dict[str, list[ClassifiedCandidate]],
+    per_family: int = 5,
+) -> dict[str, list[ClassifiedCandidate]]:
+    return {k: v[: int(per_family)] for k, v in fam_map.items()}
 
-            sku = (str(it.get("sku") or "").strip() or None)
-            mfr = (str(it.get("manufacturer") or "").strip() or None)
-            desc = (str(it.get("desc") or "").strip())
-            price = _to_decimal(it.get("unit_price_rub"))
 
-            key = sku or f"row{idx}"
-            cid = f"ci_graph_{gt.task_id}_{key}"
-            name = desc or sku or "Позиция"
+def flatten_top_candidates(
+    fam_map: dict[str, list[ClassifiedCandidate]],
+) -> list[ClassifiedCandidate]:
+    out: list[ClassifiedCandidate] = []
+    for fam in sorted(fam_map.keys()):
+        out.extend(fam_map[fam])
+    return out
 
-            items.append(
-                CandidateItem(
-                    candidate_id=cid,
-                    category=scope,
-                    sku=sku,
-                    manufacturer=mfr,
-                    model=None,
-                    name=name,
-                    description=desc or name,
-                    unit_price_rub=price,
-                    price_source="kuzu_graph",
-                    evidence_task_ids=[gt.task_id],
-                    meta={"task_id": gt.task_id, "snapshot_id": sid, "scope": scope},
-                )
-            )
 
-    tasks: list[CandidateTask] = []
-    existing = set()
-    for gt in picked:
-        tasks.append(CandidateTask(task_id=gt.task_id, title=gt.title, url=gt.url, similarity=0.0, snippet=""))
-        existing.add(gt.task_id)
+def debug_dump_hits(hits: list[RagHit], max_n: int = 20) -> str:
+    lines = []
+    for h in hits[: int(max_n)]:
+        lines.append(f"{h.score:.3f} | {h.candidate.manufacturer or ''} | {h.candidate.sku or ''} | {h.candidate.name}")
+        lines.append(f"  {explain_hit(h)}")
+    return "\n".join(lines)
 
-    eng = _make_engine()
-    if eng is not None:
-        for t in _keyword_tasks_postgres(eng, text, limit=30):
-            if t.task_id not in existing:
-                tasks.append(t)
-                existing.add(t.task_id)
 
-    return CandidatePool(items=items, tasks=tasks)
+# Back-compat names (older parts of scaffold may import these).
+retrieve_candidates = retrieve_candidates_hybrid

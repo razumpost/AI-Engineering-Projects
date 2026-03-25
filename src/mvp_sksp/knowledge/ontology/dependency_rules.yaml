@@ -2,155 +2,211 @@ dependency_rules:
   ptz_camera:
     requires_any:
       - [mounting_kit, control_processor]
-      - [cable_hdmi, cable_usb, cable_cat]
-    recommended_with: [touch_panel]
-
-  fixed_conference_camera:
-    requires_any:
-      - [cable_usb, cable_hdmi, cable_cat]
+      - [cable_hdmi, cable_usb]
+    recommended_with:
+      - camera_controller
+      - cable_cat6
+    optional_with:
+      - poe_switch
+      - camera_extension
+    incompatible_with:
+      - videobar
 
   videobar:
+    requires_all:
+      - display
+      - cable_hdmi
+    recommended_with:
+      - control_processor
+    incompatible_with:
+      - ptz_camera
+
+  discussion_system:
     requires_any:
-      - [display_panel, interactive_panel]
-      - [cable_usb, cable_hdmi, cable_cat]
+      - [dsp_audio, audio_mixer]
+      - [speaker_system, wall_speaker]
+    recommended_with:
+      - amplifier
+      - wireless_mic
 
-  delegate_unit:
-    requires_all: [conference_controller]
-    optional_with: [chairman_unit]
-
-  chairman_unit:
-    requires_all: [conference_controller]
-    optional_with: [delegate_unit]
-
-  tabletop_mic:
+  led_cabinet:
+    requires_all:
+      - led_processor
+      - led_mounting
     requires_any:
-      - [dsp, conference_controller, usb_dsp_bridge]
+      - [power_distribution, electrical_cabinet]
+      - [signal_distribution, fiber_extender]
+    recommended_with:
+      - spare_parts_kit
 
-  ceiling_mic_array:
+  videowall_controller:
+    requires_all:
+      - display
+      - signal_distribution
     requires_any:
-      - [dsp, usb_dsp_bridge, poe_switch]
-
-  speakerphone:
-    requires_any:
-      - [byod_usb_hdmi_gateway, room_pc, simple_io_hub]
-
-  conference_controller:
-    requires_any:
-      - [wall_speaker, ceiling_speaker, soundbar, amplifier]
-
-  dsp:
-    requires_any:
-      - [wall_speaker, ceiling_speaker, amplifier, active_speaker]
-
-  usb_dsp_bridge:
-    requires_any:
-      - [tabletop_mic, ceiling_mic_array, wall_speaker, soundbar]
-
-  display_panel:
-    requires_any:
-      - [mounting_kit]
-      - [cable_hdmi, cable_dp, cable_cat]
-    optional_with: [room_pc, byod_wireless_presentation, byod_usb_hdmi_gateway]
-
-  interactive_panel:
-    requires_any:
-      - [mounting_kit]
-      - [cable_hdmi, cable_usb, cable_cat]
-    optional_with: [room_pc, byod_wireless_presentation, byod_usb_hdmi_gateway]
+      - [matrix_switcher, video_processor]
+      - [fiber_extender, hdmi_extender]
+    recommended_with:
+      - control_processor
 
   projector:
-    requires_all: [mounting_kit]
-    recommended_with: [cable_hdmi]
-
-  byod_wireless_presentation:
     requires_any:
-      - [display_panel, interactive_panel, projector]
-      - [managed_switch, poe_switch, cable_cat]
+      - [projection_screen, motorized_screen]
+      - [projector_mount, mounting_kit]
+    recommended_with:
+      - presentation_switcher
+      - wireless_presentation
 
-  byod_usb_hdmi_gateway:
+  amplifier:
     requires_any:
-      - [display_panel, interactive_panel, projector]
-      - [cable_hdmi, cable_usb, usb_c_dock]
+      - [speaker_system, wall_speaker]
+      - [speaker_100v]
+    recommended_with:
+      - dsp_audio
 
-  usb_c_dock:
+  dsp_audio:
     requires_any:
-      - [display_panel, interactive_panel]
-      - [cable_hdmi, cable_usb]
+      - [wireless_mic, wired_mic]
+      - [discussion_system]
+    recommended_with:
+      - amplifier
+
+  control_processor:
+    recommended_with:
+      - touch_panel
+      - control_interface
+    optional_with:
+      - relay_module
+      - io_module
+
+  display:
+    requires_any:
+      - [display_mount, mounting_kit]
+      - [cable_hdmi, hdmi_extender]
+    recommended_with:
+      - control_processor
+
+  speaker_system:
+    requires_any:
+      - [amplifier]
+      - [dsp_audio, audio_mixer]
+    recommended_with:
+      - cable_speaker
+
+  wall_speaker:
+    requires_any:
+      - [amplifier]
+      - [dsp_audio, audio_mixer]
+    recommended_with:
+      - cable_speaker
+
+  camera_controller:
+    requires_any:
+      - [control_processor]
+      - [usb_hid_controller]
 
   matrix_switcher:
     requires_any:
-      - [cable_hdmi, cable_dp, cable_cat]
+      - [control_processor]
+      - [touch_panel]
+    recommended_with:
+      - cable_hdmi
+      - cable_cat6
 
-  presentation_switcher:
+  wireless_presentation:
     requires_any:
-      - [cable_hdmi, cable_usb, usb_c_dock]
+      - [display, projector]
+    recommended_with:
+      - control_processor
 
-  av_over_ip_tx:
-    requires_all: [managed_switch]
+  audio_mixer:
     requires_any:
-      - [cable_cat]
+      - [amplifier]
+      - [speaker_system, wall_speaker]
+    recommended_with:
+      - rack_accessories
 
-  av_over_ip_rx:
-    requires_all: [managed_switch]
+  poe_switch:
     requires_any:
-      - [cable_cat]
+      - [cable_cat6]
+      - [network_rack]
+
+  fiber_extender:
+    requires_any:
+      - [fiber_patchcord]
+      - [signal_distribution]
+    recommended_with:
+      - power_distribution
+
+  hdmi_extender:
+    requires_any:
+      - [cable_cat6]
+      - [signal_distribution]
+    recommended_with:
+      - power_distribution
+
+  signal_distribution:
+    recommended_with:
+      - network_rack
+      - cable_cat6
+
+  power_distribution:
+    recommended_with:
+      - electrical_cabinet
+      - ups
+
+  ups:
+    optional_with:
+      - electrical_cabinet
+
+  rack_accessories:
+    optional_with:
+      - network_rack
+
+  network_rack:
+    recommended_with:
+      - rack_accessories
+      - power_distribution
 
   touch_panel:
     requires_any:
-      - [control_processor, managed_switch, poe_switch]
+      - [control_processor]
+      - [control_interface]
 
-  control_processor:
-    optional_with: [touch_panel, keypad_controller]
-
-  managed_switch:
-    optional_with: [poe_switch]
-
-  videowall_panel:
-    requires_all: [videowall_mount, videowall_controller]
+  control_interface:
     requires_any:
-      - [cable_hdmi, cable_dp, cable_cat]
+      - [control_processor]
 
-  videowall_controller:
+  relay_module:
     requires_any:
-      - [splitter, matrix_switcher, av_over_ip_tx, av_over_ip_rx]
+      - [control_processor]
 
-  led_cabinet:
-    requires_all: [led_processor, led_structure, power_distribution]
+  io_module:
     requires_any:
-      - [sending_card, receiving_card, led_signal_accessories]
+      - [control_processor]
+
+  cable_hdmi:
+    optional_with:
+      - hdmi_extender
+
+  cable_cat6:
+    optional_with:
+      - poe_switch
+
+  cable_speaker:
+    optional_with:
+      - rack_accessories
 
   led_processor:
     requires_any:
-      - [sending_card, led_signal_accessories]
+      - [control_processor]
+    recommended_with:
+      - signal_distribution
 
-  wireless_mic:
+  led_mounting:
     requires_any:
-      - [mixer, dsp, matrix_audio_processor]
+      - [mounting_kit]
 
-  podium_mic:
-    requires_any:
-      - [mixer, dsp, matrix_audio_processor]
-
-  line_array:
-    requires_any:
-      - [amplifier, dsp, mixer]
-
-  active_speaker:
-    requires_any:
-      - [dsp, mixer, matrix_audio_processor]
-
-  media_player:
-    requires_any:
-      - [display_panel, videowall_controller, led_processor]
-
-  room_pc:
-    requires_any:
-      - [display_panel, interactive_panel, byod_usb_hdmi_gateway]
-
-  recorder:
-    requires_any:
-      - [matrix_switcher, mixer, stream_encoder]
-
-  stream_encoder:
-    requires_any:
-      - [matrix_switcher, mixer, recorder]
+  spare_parts_kit:
+    optional_with:
+      - led_cabinet

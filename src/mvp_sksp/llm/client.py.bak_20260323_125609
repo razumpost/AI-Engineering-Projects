@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import json
+import re
+import time
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+import requests
+
+
+class ChatCompletionClient(Protocol):
+    def complete(self, messages: list[dict[str, Any]]) -> str: ...
+
+
+@dataclass(frozen=True)
+class YandexFMConfig:
+    endpoint: str
+    model_uri: str
+    api_key: str = ""
+    iam_token: str = ""
+    folder_id: str = ""
+    timeout_s: float = 240.0
+    connect_timeout_s: float = 30.0
+    max_retries: int = 3
+
+
+class YandexFM(ChatCompletionClient):
+    """
+    OpenAI-compatible client for Yandex Cloud LLM gateway.
+
+    Requires:
+      YC_FM_ENDPOINT=https://llm.api.cloud.yandex.net/v1
+      YC_FM_MODEL_URI=gpt://<folder_id>/deepseek-v32/latest
+    """
+
+    def __init__(self, cfg: YandexFMConfig) -> None:
+        self.cfg = cfg
+
+    def complete(self, messages: list[dict[str, Any]]) -> str:
+        last_err: Exception | None = None
+        for attempt in range(max(1, int(self.cfg.max_retries))):
+            try:
+                return self._complete_openai(messages)
+            except Exception as e:
+                last_err = e
+                time.sleep(0.6 * (attempt + 1))
+        raise RuntimeError(f"LLM call failed: {last_err}")
+
+    def _complete_openai(self, messages: list[dict[str, Any]]) -> str:
+        base = self.cfg.endpoint.rstrip("/")
+        url = f"{base}/chat/completions"
+
+        payload = {
+            "model": self.cfg.model_uri,
+            "messages": [self._to_openai_msg(m) for m in messages],
+            "temperature": 0.2,
+        }
+
+        # обычно для YC OpenAI-compat подходит Bearer api_key
+        headers = self._headers_bearer()
+        r = requests.post(url, headers=headers, json=payload, timeout=(self.cfg.connect_timeout_s, self.cfg.timeout_s))
+
+        # fallback: некоторые окружения ожидают Api-Key
+        if r.status_code in (401, 403):
+            headers = self._headers_api_key()
+            r = requests.post(url, headers=headers, json=payload, timeout=(self.cfg.connect_timeout_s, self.cfg.timeout_s))
+
+        if r.status_code >= 400:
+            raise RuntimeError(f"Yandex OpenAI-compat HTTP {r.status_code}: {r.text}")
+
+        data = r.json()
+        try:
+            return data["choices"][0]["message"]["content"]
+        except Exception:
+            raise RuntimeError(f"Unexpected response: {json.dumps(data, ensure_ascii=False)[:2000]}")
+
+    def _to_openai_msg(self, m: dict[str, Any]) -> dict[str, Any]:
+        role = m.get("role", "user")
+        content = m.get("content", None)
+        if content is None:
+            content = m.get("text", "")
+        return {"role": role, "content": content}
+
+    def _headers_bearer(self) -> dict[str, str]:
+        h = {"Content-Type": "application/json"}
+        token = (self.cfg.api_key or "").strip()
+        iam = (self.cfg.iam_token or "").strip()
+        if token:
+            h["Authorization"] = f"Bearer {token}"
+        elif iam:
+            h["Authorization"] = f"Bearer {iam}"
+        return h
+
+    def _headers_api_key(self) -> dict[str, str]:
+        h = {"Content-Type": "application/json"}
+        token = (self.cfg.api_key or "").strip()
+        iam = (self.cfg.iam_token or "").strip()
+        if token:
+            h["Authorization"] = f"Api-Key {token}"
+        elif iam:
+            h["Authorization"] = f"Bearer {iam}"
+        return h
+
+def extract_json_object(text: str) -> str:
+    """Extract the first JSON object from arbitrary text.
+
+    Used by orchestrator to recover JSON from LLM outputs that may contain prose or code fences.
+    """
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("No JSON object found in text (missing '{')")
+
+    depth = 0
+    in_str = False
+    esc = False
+
+    for i in range(start, len(text)):
+        ch = text[i]
+
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+
+        if ch == '"':
+            in_str = True
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    raise ValueError("Unbalanced JSON braces in text")
+
+# JSON extraction helper used by orchestrator
+def extract_json_object(text: str) -> str:
+    """Extract first JSON object from text."""
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("No JSON object found")
+    dec = json.JSONDecoder()
+    _obj, end = dec.raw_decode(text[start:])
+    return text[start : start + end]
