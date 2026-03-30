@@ -4,6 +4,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Backward-compat alias: some modules import LineItemPlan from this module.
+# We map it to the canonical domain LineItem model used by Spec.items.
+from ..domain.spec import LineItem as LineItemPlan  # noqa: F401
+
 
 class ClassifiedCandidate(BaseModel):
     candidate_id: str

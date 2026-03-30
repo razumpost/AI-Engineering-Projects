@@ -1,218 +1,108 @@
 from __future__ import annotations
 
-import re
-from functools import lru_cache
-from typing import Iterable, Protocol
+from dataclasses import dataclass
+from typing import Iterable, List
 
-from ..knowledge.loader import load_knowledge_map
-from ..knowledge.models import FamilyDef
+from ..domain.candidates import CandidateItem
 from ..planning.plan_models import ClassifiedCandidate
 
 
-class CandidateLike(Protocol):
-    candidate_id: str
-    category: str | None
-    sku: str | None
-    manufacturer: str | None
-    name: str
-    description: str | None
+def classify_candidate(candidate: CandidateItem) -> ClassifiedCandidate:
+    """Backward-compatible single-item classifier.
 
-
-_TOKEN_RE = re.compile(r"[a-zA-Zа-яА-Я0-9\-\+\./]+")
-
-
-@lru_cache(maxsize=1)
-def _km():
-    return load_knowledge_map()
-
-
-def _text(item: CandidateLike) -> str:
-    return " ".join(
-        [
-            str(item.category or ""),
-            str(item.sku or ""),
-            str(item.manufacturer or ""),
-            str(item.name or ""),
-            str(item.description or ""),
-        ]
-    ).casefold()
-
-
-def _tokenize(text: str) -> set[str]:
-    return {m.group(0).casefold() for m in _TOKEN_RE.finditer(text)}
-
-
-def _room_fit_for_family(family: str) -> list[str]:
-    if family.startswith("videowall_") or family == "videowall_controller":
-        return ["videowall"]
-    if family.startswith("led_") or family == "led_cabinet":
-        return ["led_screen", "auditorium"]
-    if family == "speaker_100v":
-        return ["auditorium"]
-    return ["meeting_room", "auditorium"]
-
-
-def _is_videowall_like(text: str) -> bool:
-    return ("видеостен" in text) or ("videowall" in text) or (
-        "контроллер" in text and ("1x4" in text or "2x2" in text or "3x3" in text or "4x4" in text)
-    )
-
-
-def _is_100v_speaker(text: str) -> bool:
-    return (
-        ("100v" in text or "100 v" in text or "70v" in text or "70 v" in text)
-        and ("акуст" in text or "speaker" in text or "колон" in text)
-    )
-
-
-def _is_led_like(text: str) -> bool:
-    return ("светодиод" in text) or ("шаг пикс" in text) or ("pixel" in text) or ("яркость" in text)
-
-
-def _is_videobar_like(text: str) -> bool:
-    if "видеобар" in text or "videobar" in text:
-        return True
-    if "nextmeet" in text and ("камера" in text or "микрофон" in text):
-        return True
-    if ("all-in-one" in text or "все-в-одном" in text) and ("камера" in text and "микрофон" in text and "динамик" in text):
-        return True
-    return False
-
-
-def _signature_gate(f: FamilyDef, tokens: set[str], text: str) -> tuple[bool, float]:
-    """Deterministic gating for family matching.
-
-    Returns: (allowed, bonus_score)
+    Some pipeline stages import classify_candidate; internally we classify via batch API.
     """
-    sig = f.signature
-    if sig.must_not:
-        for phrase in sig.must_not:
-            p = phrase.casefold()
-            if not p:
-                continue
-            if p in text:
-                return False, 0.0
-
-    if sig.must_have:
-        ok = False
-        for phrase in sig.must_have:
-            p = phrase.casefold()
-            if not p:
-                continue
-            if p in text:
-                ok = True
-                break
-            # token fallback
-            if p in tokens:
-                ok = True
-                break
-        if not ok:
-            return False, 0.0
-
-    bonus = 0.0
-    for phrase in sig.strong_keywords:
-        p = phrase.casefold()
-        if not p:
-            continue
-        if p in text or p in tokens:
-            bonus += 0.15
-    return True, bonus
+    return classify_candidates([candidate])[0]
 
 
-def _score_family(text: str, tokens: set[str], f: FamilyDef) -> float:
-    allowed, bonus = _signature_gate(f, tokens, text)
-    if not allowed:
-        return -1.0
+def classify_candidates(candidates: Iterable[CandidateItem]) -> List[ClassifiedCandidate]:
+    """Heuristic candidate classifier.
 
-    score = 0.0
-    for kw in f.keywords:
-        k = kw.casefold().strip()
-        if not k:
-            continue
-        if k in text:
-            score += 0.12
+    Goal:
+      - Provide stable family labels for downstream planning/postprocess.
+      - Avoid hard dependency on any ML model here.
+      - Keep behavior deterministic and explainable.
 
-    for cat in f.categories:
-        c = cat.casefold().strip()
-        if c and c in text:
-            score += 0.05
+    Notes:
+      - This is a baseline. We will later replace/augment with graph+RAG/LLM classifier if needed.
+    """
+    out: List[ClassifiedCandidate] = []
+    for c in candidates:
+        text = _norm_text(f"{c.manufacturer or ''} {c.model or ''} {c.sku or ''} {c.name} {c.description}")
+        family, conf, notes = _infer_family(text)
 
-    score += bonus
-    return score
-
-
-def _hard_overrides(text: str) -> str | None:
-    """Fix high-signal misclassifications (kept minimal)."""
-    if _is_videobar_like(text):
-        return "videobar"
-    if _is_videowall_like(text):
-        # Let families handle exact type, but controller is typical in results.
-        return "videowall_controller"
-    if _is_led_like(text):
-        return "led_cabinet"
-    if _is_100v_speaker(text):
-        # Prefer wall_speaker family with tag note handled downstream
-        return "wall_speaker"
-    return None
-
-
-def classify_candidates(
-    items: Iterable[ClassifiedCandidate],
-) -> list[ClassifiedCandidate]:
-    km = _km()
-    families = list(km.families.values())
-
-    out: list[ClassifiedCandidate] = []
-    for it in items:
-        t = _text(it)
-        tok = _tokenize(t)
-
-        override = _hard_overrides(t)
-        if override and override in km.families:
-            it.family = override
-            it.family_score = 0.95
-            it.room_fit = _room_fit_for_family(override)
-            if override == "wall_speaker" and _is_100v_speaker(t):
-                it.notes.append("обнаружена 100V акустика (уточнить трансляционную линию/усилитель)")
-                # store tag signal for dependency resolver
-                it.meta = dict(it.meta or {})
-                it.meta["tag_100v"] = True
-            out.append(it)
-            continue
-
-        best_family: str | None = None
-        best_score = -1.0
-        for f in families:
-            s = _score_family(t, tok, f)
-            if s > best_score:
-                best_score = s
-                best_family = f.key
-
-        if best_family and best_score >= 0.12:
-            it.family = best_family
-            it.family_score = min(0.99, 0.4 + best_score)
-            it.room_fit = _room_fit_for_family(best_family)
-        else:
-            it.family = None
-            it.family_score = None
-            it.room_fit = None
-        out.append(it)
-
+        out.append(
+            ClassifiedCandidate(
+                candidate_id=c.candidate_id,
+                family=family,
+                family_confidence=conf,
+                capabilities=[],
+                interfaces=[],
+                room_fit=[],
+                notes=notes,
+            )
+        )
     return out
 
 
-def pick_best_per_family(
-    items: list[ClassifiedCandidate],
-    per_family: int = 5,
-) -> dict[str, list[ClassifiedCandidate]]:
-    fam: dict[str, list[ClassifiedCandidate]] = {}
-    for it in items:
-        if not it.family:
+def _norm_text(s: str) -> str:
+    return " ".join((s or "").lower().replace("\u00a0", " ").split())
+
+
+def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
+    """Return (family, confidence, notes)."""
+    notes: list[str] = []
+
+    # Strong signals first
+    rules: list[tuple[str, str]] = [
+        ("conference_unit", "конференц-система конференц система председателя делегата пульт председателя пульт делегата"),
+        ("mic_gooseneck", "микрофон гусиная шея goose"),
+        ("mic_wireless", "радиомикрофон wireless ручной петличный головной"),
+        ("speaker", "акустика громкоговоритель колонка сателлит сабвуфер soundbar"),
+        ("amp", "усилитель power amplifier"),
+        ("dsp", "dsp процессор обработки аудио аудиопроцессор"),
+        ("mixer", "микшер микшерный пульт"),
+        ("camera", "камера ptz zoom видеокамера"),
+        ("capture", "плата захвата capture usb capture"),
+        ("switch", "коммутатор switch poe"),
+        ("router", "маршрутизатор router"),
+        ("display", "дисплей панель lcd led tv телевизор"),
+        ("projector", "проектор projector"),
+        ("screen", "экран projection screen"),
+        ("led_wall", "светодиодный экран led кабинет модуль novastar"),
+        ("controller", "контроллер processor scalers видеопроцессор"),
+        ("mount", "крепление кронштейн стойка настенное потолочное"),
+        ("cable", "кабель hdmi dp displayport usb xlr utp sftp cat6 cat5"),
+        ("power", "блок питания power supply адаптер"),
+        ("accessory", "комплект расходные материалы разъем коннектор"),
+    ]
+
+    for fam, kws in rules:
+        if _contains_any(text, kws.split()):
+            # Confidence heuristic
+            conf = 0.75
+            if fam in {"cable", "accessory"}:
+                conf = 0.55
+            if fam in {"led_wall", "conference_unit", "camera", "dsp", "amp"}:
+                conf = 0.85
+            notes.append(f"rule_match:{fam}")
+            return fam, conf, notes
+
+    # Weak fallback: try SKU/manufacturer patterns
+    if "relacart" in text:
+        notes.append("weak_match:relacart")
+        return "conference_unit", 0.55, notes
+    if "novastar" in text:
+        notes.append("weak_match:novastar")
+        return "controller", 0.55, notes
+
+    return None, 0.0, ["unclassified"]
+
+
+def _contains_any(text: str, tokens: list[str]) -> bool:
+    for t in tokens:
+        if not t:
             continue
-        fam.setdefault(it.family, []).append(it)
-
-    for k in fam:
-        fam[k].sort(key=lambda x: float(x.score or 0.0), reverse=True)
-        fam[k] = fam[k][: int(per_family)]
-
-    return fam
+        if t in text:
+            return True
+    return False

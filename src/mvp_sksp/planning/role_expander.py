@@ -138,7 +138,9 @@ def _build_role(role_key: str, source: str, requirements: ProjectRequirements, r
     if role_key == "room_display_main" and requirements.room_type == "meeting_room":
         notes.append("Для переговорной по умолчанию предпочтительнее panel family, не projector.")
     if role_key == "room_audio_capture" and (requirements.caps.seat_count or 0) >= 8:
-        notes.append("Для переговорных на 8+ мест предпочтительнее конференц-система/настольные/потолочные микрофоны, а не одиночный speakerphone.")
+        notes.append(
+            "Для переговорных на 8+ мест предпочтительнее конференц-система/настольные/потолочные микрофоны, а не одиночный speakerphone."
+        )
 
     return ExpandedRole(
         role_key=role_key,
@@ -190,3 +192,8 @@ def expand_required_roles(requirements: ProjectRequirements) -> list[ExpandedRol
                 seen.add("room_camera_secondary")
 
     return out
+
+
+def expand_req(requirements: ProjectRequirements) -> ProjectRequirements:
+    """Backward-compatible alias used by older orchestrators/CLIs."""
+    return requirements
