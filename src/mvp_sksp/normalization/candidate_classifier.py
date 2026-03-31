@@ -1,39 +1,41 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Any, Iterable, List
 
-from ..domain.candidates import CandidateItem
 from ..planning.plan_models import ClassifiedCandidate
 
 
-def classify_candidate(candidate: CandidateItem) -> ClassifiedCandidate:
-    """Backward-compatible single-item classifier.
+def classify_candidate(obj: Any) -> ClassifiedCandidate:
+    """Classify a single candidate-like object.
 
-    Some pipeline stages import classify_candidate; internally we classify via batch API.
+    Supports:
+      - CandidateItem (manufacturer/sku/name/description/model)
+      - Spec line-like objects used in spec_mapper (manufacturer/sku/name/description)
     """
-    return classify_candidates([candidate])[0]
+    return classify_candidates([obj])[0]
 
 
-def classify_candidates(candidates: Iterable[CandidateItem]) -> List[ClassifiedCandidate]:
-    """Heuristic candidate classifier.
+def classify_candidates(objs: Iterable[Any]) -> List[ClassifiedCandidate]:
+    """Deterministic heuristic classifier.
 
-    Goal:
-      - Provide stable family labels for downstream planning/postprocess.
-      - Avoid hard dependency on any ML model here.
-      - Keep behavior deterministic and explainable.
-
-    Notes:
-      - This is a baseline. We will later replace/augment with graph+RAG/LLM classifier if needed.
+    Important: Must be tolerant to missing attributes because spec_mapper passes _LineLike.
     """
     out: List[ClassifiedCandidate] = []
-    for c in candidates:
-        text = _norm_text(f"{c.manufacturer or ''} {c.model or ''} {c.sku or ''} {c.name} {c.description}")
+    for o in objs:
+        manufacturer = _first_str(getattr(o, "manufacturer", None), getattr(o, "vendor", None), getattr(o, "brand", None))
+        model = _first_str(getattr(o, "model", None))
+        sku = _first_str(getattr(o, "sku", None), getattr(o, "article", None), getattr(o, "partnumber", None))
+        name = _first_str(getattr(o, "name", None), getattr(o, "title", None))
+        desc = _first_str(getattr(o, "description", None), getattr(o, "desc", None))
+
+        text = _norm_text(f"{manufacturer} {model} {sku} {name} {desc}")
         family, conf, notes = _infer_family(text)
+
+        candidate_id = _first_str(getattr(o, "candidate_id", None), getattr(o, "id", None)) or "line_like"
 
         out.append(
             ClassifiedCandidate(
-                candidate_id=c.candidate_id,
+                candidate_id=candidate_id,
                 family=family,
                 family_confidence=conf,
                 capabilities=[],
@@ -45,15 +47,23 @@ def classify_candidates(candidates: Iterable[CandidateItem]) -> List[ClassifiedC
     return out
 
 
+def _first_str(*vals: Any) -> str:
+    for v in vals:
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            return s
+    return ""
+
+
 def _norm_text(s: str) -> str:
     return " ".join((s or "").lower().replace("\u00a0", " ").split())
 
 
 def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
-    """Return (family, confidence, notes)."""
     notes: list[str] = []
 
-    # Strong signals first
     rules: list[tuple[str, str]] = [
         ("conference_unit", "конференц-система конференц система председателя делегата пульт председателя пульт делегата"),
         ("mic_gooseneck", "микрофон гусиная шея goose"),
@@ -70,7 +80,7 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         ("projector", "проектор projector"),
         ("screen", "экран projection screen"),
         ("led_wall", "светодиодный экран led кабинет модуль novastar"),
-        ("controller", "контроллер processor scalers видеопроцессор"),
+        ("controller", "контроллер processor scaler видеопроцессор novastar"),
         ("mount", "крепление кронштейн стойка настенное потолочное"),
         ("cable", "кабель hdmi dp displayport usb xlr utp sftp cat6 cat5"),
         ("power", "блок питания power supply адаптер"),
@@ -79,7 +89,6 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
 
     for fam, kws in rules:
         if _contains_any(text, kws.split()):
-            # Confidence heuristic
             conf = 0.75
             if fam in {"cable", "accessory"}:
                 conf = 0.55
@@ -88,7 +97,6 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
             notes.append(f"rule_match:{fam}")
             return fam, conf, notes
 
-    # Weak fallback: try SKU/manufacturer patterns
     if "relacart" in text:
         notes.append("weak_match:relacart")
         return "conference_unit", 0.55, notes
@@ -101,8 +109,9 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
 
 def _contains_any(text: str, tokens: list[str]) -> bool:
     for t in tokens:
-        if not t:
-            continue
-        if t in text:
+        if t and t in text:
             return True
     return False
+
+
+__all__ = ["classify_candidate", "classify_candidates"]
