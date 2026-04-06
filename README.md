@@ -1,4 +1,15 @@
-# mvp-sksp
+System that generates engineering specifications from text and call transcripts.
+
+Stack:
+- Python
+- PostgreSQL + pgvector
+- RAG architecture
+- LLM API
+
+Features:
+- Deterministic updates (add/remove/replace)
+- Integration with Bitrix24
+- Engineering logic-aware generation
 
 Refactored MVP scaffold for building SKSP / commercial equipment specifications from:
 - user request or call transcript,
