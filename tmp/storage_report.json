@@ -1,0 +1,202 @@
+{
+  "postgres": {
+    "db": {
+      "db": "vector_rag",
+      "bytes": 700914711
+    },
+    "tables_top": [
+      {
+        "table": "rag_engram_refs",
+        "total_bytes": 520142848,
+        "data_bytes": 241393664,
+        "index_bytes": 278659072,
+        "toast_bytes": 90112,
+        "n_live_tup": 0
+      },
+      {
+        "table": "rag_embeddings",
+        "total_bytes": 107454464,
+        "data_bytes": 1908736,
+        "index_bytes": 1163264,
+        "toast_bytes": 104382464,
+        "n_live_tup": 0
+      },
+      {
+        "table": "rag_chunks",
+        "total_bytes": 30040064,
+        "data_bytes": 27484160,
+        "index_bytes": 2326528,
+        "toast_bytes": 229376,
+        "n_live_tup": 0
+      },
+      {
+        "table": "task_comments",
+        "total_bytes": 20004864,
+        "data_bytes": 18358272,
+        "index_bytes": 1032192,
+        "toast_bytes": 614400,
+        "n_live_tup": 0
+      },
+      {
+        "table": "rag_engrams",
+        "total_bytes": 6463488,
+        "data_bytes": 2482176,
+        "index_bytes": 3940352,
+        "toast_bytes": 40960,
+        "n_live_tup": 0
+      },
+      {
+        "table": "tasks",
+        "total_bytes": 4341760,
+        "data_bytes": 3203072,
+        "index_bytes": 90112,
+        "toast_bytes": 1048576,
+        "n_live_tup": 0
+      },
+      {
+        "table": "rag_documents",
+        "total_bytes": 1572864,
+        "data_bytes": 1204224,
+        "index_bytes": 327680,
+        "toast_bytes": 40960,
+        "n_live_tup": 0
+      },
+      {
+        "table": "files",
+        "total_bytes": 950272,
+        "data_bytes": 868352,
+        "index_bytes": 49152,
+        "toast_bytes": 32768,
+        "n_live_tup": 0
+      },
+      {
+        "table": "task_snapshots",
+        "total_bytes": 475136,
+        "data_bytes": 352256,
+        "index_bytes": 90112,
+        "toast_bytes": 32768,
+        "n_live_tup": 0
+      },
+      {
+        "table": "task_files",
+        "total_bytes": 139264,
+        "data_bytes": 49152,
+        "index_bytes": 65536,
+        "toast_bytes": 24576,
+        "n_live_tup": 0
+      },
+      {
+        "table": "chat_files",
+        "total_bytes": 98304,
+        "data_bytes": 8192,
+        "index_bytes": 49152,
+        "toast_bytes": 40960,
+        "n_live_tup": 0
+      },
+      {
+        "table": "chat_messages",
+        "total_bytes": 90112,
+        "data_bytes": 24576,
+        "index_bytes": 32768,
+        "toast_bytes": 32768,
+        "n_live_tup": 0
+      },
+      {
+        "table": "chat_dialog_snapshots",
+        "total_bytes": 16384,
+        "data_bytes": 0,
+        "index_bytes": 8192,
+        "toast_bytes": 8192,
+        "n_live_tup": 0
+      }
+    ],
+    "rag_chunks_completeness": {
+      "rows": 24868,
+      "content_not_null": 24868,
+      "content_pct": "100.00",
+      "meta_not_null": 24868,
+      "meta_pct": "100.00",
+      "path_not_empty": 294,
+      "deal_id_not_empty": 1605,
+      "activity_id_not_empty": 294,
+      "call_chunks": 294
+    },
+    "files_completeness": {
+      "files": 1055,
+      "name_not_null": 1055,
+      "local_path_not_null": 1054,
+      "download_url_not_null": 1055
+    },
+    "tasks_completeness": {
+      "tasks": 2441,
+      "title_not_null": 2441,
+      "raw_not_null": 2441,
+      "tasks_with_deal_tag": 2441
+    },
+    "vector_tables": {
+      "rag_embeddings": {
+        "table": "rag_embeddings",
+        "total_bytes": 107454464,
+        "data_bytes": 1908736,
+        "index_bytes": 1163264
+      },
+      "rag_chunks": {
+        "table": "rag_chunks",
+        "total_bytes": 30040064,
+        "data_bytes": 27484160,
+        "index_bytes": 2326528
+      },
+      "rag_documents": {
+        "table": "rag_documents",
+        "total_bytes": 1572864,
+        "data_bytes": 1204224,
+        "index_bytes": 327680
+      },
+      "rag_engrams": {
+        "table": "rag_engrams",
+        "total_bytes": 6463488,
+        "data_bytes": 2482176,
+        "index_bytes": 3940352
+      },
+      "rag_engram_refs": {
+        "table": "rag_engram_refs",
+        "total_bytes": 520142848,
+        "data_bytes": 241393664,
+        "index_bytes": 278659072
+      }
+    }
+  },
+  "kuzu": {
+    "path": "/home/user/PycharmProjects/VectorBDRAGcollector_/.cognee_system/databases/cognee_graph_kuzu",
+    "disk_bytes": 20389888,
+    "graph": {
+      "nodes": 1869,
+      "edges": 2495,
+      "types": [
+        {
+          "type": "Item",
+          "cnt": 1368
+        },
+        {
+          "type": "Task",
+          "cnt": 286
+        },
+        {
+          "type": "Snapshot",
+          "cnt": 210
+        },
+        {
+          "type": "Scope",
+          "cnt": 5
+        }
+      ]
+    }
+  },
+  "disk": {
+    "collector_root": "/home/user/PycharmProjects/VectorBDRAGcollector_",
+    "downloads_dir": "/home/user/PycharmProjects/VectorBDRAGcollector_/downloads",
+    "downloads_bytes": 2546621997,
+    "cognee_system_dir": "/home/user/PycharmProjects/VectorBDRAGcollector_/.cognee_system",
+    "cognee_system_bytes": 34495463
+  }
+}

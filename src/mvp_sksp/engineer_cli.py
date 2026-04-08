@@ -11,11 +11,11 @@ from .config import Settings
 from .llm.client import YandexFM, YandexFMConfig
 from .llm.prompts import compose_prompt, patch_prompt
 from .persistence.snapshot_store import make_run_paths, update_last_valid
+from .pipeline.deal_retrieval import build_candidate_pool_for_deal
 from .pipeline.draft_seed import seed_spec_from_role_candidates
 from .pipeline.export import export_xlsx, render_markdown
 from .pipeline.orchestrator import compose, patch
 from .pipeline.postprocess import postprocess_spec
-from .pipeline.deal_retrieval import build_candidate_pool_for_deal
 from .planning.coverage_planner import build_filtered_pool_for_coverage
 from .planning.requirements import parse_requirements
 from .planning.role_expander import expand_required_roles
@@ -31,16 +31,13 @@ def _load_env() -> None:
 
 
 def _load_transcript(args) -> tuple[str, dict]:
-    # 1) explicit text
     if args.request and args.request.strip():
         return args.request.strip(), {"source": "cli_request"}
 
-    # 2) transcript file
     if args.transcript_file:
         p = Path(args.transcript_file).expanduser().resolve()
         return p.read_text(encoding="utf-8", errors="replace").strip(), {"source": "file", "path": str(p)}
 
-    # 3) from DB
     pg = PostgresDealStore()
     text, meta = pg.get_best_transcript_for_deal(args.deal_id, activity_id=args.activity_id)
     meta["source"] = "db"
@@ -62,11 +59,6 @@ def main() -> int:
     args = ap.parse_args()
 
     s = Settings()
-    if os.getenv("MVP_SKSP_DEBUG_LLM") == "1":
-        print("[debug] endpoint =", s.yandex_fm_endpoint)
-        print("[debug] model_uri =", s.yandex_fm_model_uri)
-        print("[debug] folder_id =", s.yandex_folder_id)
-
     run_dir = args.run_dir or s.run_dir
     run = make_run_paths(run_dir)
 
@@ -88,28 +80,35 @@ def main() -> int:
         include_global=not args.no_global,
     )
 
-    coverage = build_filtered_pool_for_coverage(
-        pool=raw_pool,
-        requirements=requirements,
-        topology=topology,
-        roles=role_plan,
-    )
-
-    pool = coverage.filtered_pool
-    role_candidates = {d.role_key: d.selected_candidate_ids for d in coverage.role_debug if d.selected_candidate_ids}
+    # KEY CHANGE:
+    # In --no-global mode we must NOT coverage-filter the pool, otherwise we risk filtering to zero.
+    # The purpose of --no-global is "use existing deal SKSP snapshot as baseline".
+    if args.no_global:
+        pool = raw_pool
+        role_candidates: dict[str, list[str]] = {}
+        coverage_warnings: list[str] = []
+    else:
+        coverage = build_filtered_pool_for_coverage(
+            pool=raw_pool,
+            requirements=requirements,
+            topology=topology,
+            roles=role_plan,
+        )
+        pool = coverage.filtered_pool
+        role_candidates = {d.role_key: d.selected_candidate_ids for d in coverage.role_debug if d.selected_candidate_ids}
+        coverage_warnings = list(coverage.warnings or [])
 
     if os.getenv("MVP_SKSP_DEBUG_PLAN") == "1":
         print("[debug] deal_id =", args.deal_id)
         print("[debug] transcript_meta =", tmeta)
         print("[debug] requirements =", requirements.model_dump(mode="json"))
         print("[debug] topology =", topology.model_dump(mode="json"))
-        print("[debug] role_plan =", [r.role_key for r in role_plan])
+        print("[debug] roles =", [r.role_key for r in role_plan])
         print("[debug] raw_pool items =", len(raw_pool.items), "tasks =", len(raw_pool.tasks))
-        print("[debug] filtered_pool items =", len(pool.items), "tasks =", len(pool.tasks))
-        print("[debug] kept_candidate_ids =", coverage.kept_candidate_ids[:25])
-        print("[debug] role_candidates =", role_candidates)
-        if coverage.warnings:
-            print("[debug] coverage warnings =", coverage.warnings)
+        print("[debug] used_pool items =", len(pool.items), "tasks =", len(pool.tasks))
+        print("[debug] role_candidates size =", {k: len(v) for k, v in role_candidates.items()})
+        if coverage_warnings:
+            print("[debug] coverage warnings =", coverage_warnings)
 
     llm = YandexFM(
         YandexFMConfig(

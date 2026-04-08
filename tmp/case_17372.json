@@ -1,0 +1,381 @@
+{
+  "deal_id": "17372",
+  "tasks": [
+    {
+      "task_id": 80330,
+      "title": "МЧС НАО / Сделать расчет логистики / Id Сделки: 17372"
+    },
+    {
+      "task_id": 80242,
+      "title": "Зарегистрировать оборудование для МЧС НАО"
+    },
+    {
+      "task_id": 80200,
+      "title": "CRM: МЧС НАО / Подобрать решение по ТЗ / ID Сделки: 17372"
+    }
+  ],
+  "sksp_files": [
+    {
+      "file_id": 654854,
+      "name": "17372 СкСп МЧС НАО 04.04.2025.xlsx",
+      "local_path": "downloads/tasks/654854_17372 СкСп МЧС НАО 04.04.2025.xlsx"
+    }
+  ],
+  "transcript_best_meta": {
+    "deal_id": "17372",
+    "activity_id": "702182",
+    "chunk_ids": [
+      228,
+      229
+    ]
+  },
+  "transcript_best_text_head": "Главное про Ленин Чест. Здравствуйте. А можете меня соединить с Леонидом Виталевичем в корабле? Одну манечку. Верение грамм в кевровом. Леонид Виталевич? Нет. Могу услышать. Алло, алло. Алло, Леонид Виталевич. Леонид Виталевич, сейчас дам секундочку. Леонид Виталевич, здравствуйте. Добрый день. Меня зовут Ольга, компания Громм-Лижен, системный интегратор с фермерами Тимидеевых решений. Мы с вами в начале этого года общались, наш проектный менеджер прорабатывал вам проект с правыми микроклонами. Тельмого звонка сейчас, узнать насколько, может быть, в оставшем или в тястье планируется на следующий год, может потребуется мультимедиоборудование, может быть вам как интересное, как интеграторы. Видет стены, сведённые экраны, интерактивные различные оборудования, аудиооборудования. На следующий год, пока мы не каких-то меробрятий не заполнированы у нас. Что-то может помнить? Просто кто-то, допустим, от медилетов полученных отталкивается, или как у вас это происходит? Ну, нам сколько фенеральный бюджет выделил, на то, что мы и живём, там на эти мероприятия не закладывались. Поняла. Могут так вот очинить, чтобы я понимала, может быть, средний по МТС, то есть вы, получается, в конце года бюджет уже на следующий год понимаете, что и как, на что можно говорить. Плюс-минус. Почти раньше у вас была указана Корабел В, собака, ваш в три и так далее, МТС, в Бокточку. Если не против, я тогда\nбюджет уже на следующий год понимаете, что и как, на что можно говорить. Плюс-минус. Почти раньше у вас была указана Корабел В, собака, ваш в три и так далее, МТС, в Бокточку. Если не против, я тогда информационную письмо с проектами продублирую, мало ли вдруг что-то изменится, потому что, где-то мне в интерес, отправляйте в Еврале перезвонить, потому что, говорят, какие движения должны пойти. Если что-то вдруг потребуется, контакты будут пишите в лоничке. Да, движения были, но закончилось нечем. Я буду отправлять и посмотреть. Всё, хорошо, всего доброго, тогда до свидания. Всего доброго, мистер.",
+  "transcript_chunks": [
+    {
+      "chunk_id": 227,
+      "created_at": "2026-02-03 10:00:41.960151+03",
+      "activity_id": "655618",
+      "path": "downloads/calls_transcripts/17372/655618/655618_1.txt",
+      "content_head": "Главное управление МЧС. Здравствуйте, меня зовут Сегор, компания «Громовижен». Я поговорю с Леонидом Виталиевичем. Сейчас соединю. Нормально. Здравствуйте, Леонид Виталиевич. Нет. Сейчас сменку. Дай. Так, он вышел из каб"
+    },
+    {
+      "chunk_id": 228,
+      "created_at": "2026-02-03 10:00:41.960151+03",
+      "activity_id": "702182",
+      "path": "downloads/calls_transcripts/17372/702182/702182_4.txt",
+      "content_head": "Главное про Ленин Чест. Здравствуйте. А можете меня соединить с Леонидом Виталевичем в корабле? Одну манечку. Верение грамм в кевровом. Леонид Виталевич? Нет. Могу услышать. Алло, алло. Алло, Леонид Виталевич. Леонид Вит"
+    },
+    {
+      "chunk_id": 229,
+      "created_at": "2026-02-03 10:00:41.960151+03",
+      "activity_id": "702182",
+      "path": "downloads/calls_transcripts/17372/702182/702182_4.txt",
+      "content_head": "бюджет уже на следующий год понимаете, что и как, на что можно говорить. Плюс-минус. Почти раньше у вас была указана Корабел В, собака, ваш в три и так далее, МТС, в Бокточку. Если не против, я тогда информационную письм"
+    }
+  ],
+  "kuzu_items_preview": [
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:3",
+      "category": "sksp",
+      "sku": "WDC-903M",
+      "manufacturer": "Relacart",
+      "name": "Беспроводной центральный блок управления конференц-системы",
+      "price": "278113.5",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:4",
+      "category": "sksp",
+      "sku": "DC-903",
+      "manufacturer": "Relacart",
+      "name": "Конвертер данных Relacart DC-903",
+      "price": "19656.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:5",
+      "category": "sksp",
+      "sku": "WDC-903D",
+      "manufacturer": "Relacart",
+      "name": "Беспроводной пульт делегата Relacart WDC-903D",
+      "price": "87129.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:6",
+      "category": "sksp",
+      "sku": "WDC-903C",
+      "manufacturer": "Relacart",
+      "name": "Беспроводной пульт председателя Relacart WDC-903C",
+      "price": "87129.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:7",
+      "category": "sksp",
+      "sku": "GF-301",
+      "manufacturer": "Relacart",
+      "name": "Микрофон на гусиной шее Relacart GF-301",
+      "price": "7182.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:8",
+      "category": "sksp",
+      "sku": "TS-0300M Full Digital Conference System Controller",
+      "manufacturer": "ITC",
+      "name": "Центральный контроллер для управления системой.\nПоддерживает беспроводные микроф",
+      "price": "229257.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:9",
+      "category": "sksp",
+      "sku": "TS-W302 Conference Chairman Unit",
+      "manufacturer": "ITC",
+      "name": "Беспроводной микрофон председателя (Wi-Fi, 5G).\nФункции: приоритет (отключение д",
+      "price": "68544.63",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:10",
+      "category": "sksp",
+      "sku": "TS-W302A Conference Delegate Unit",
+      "manufacturer": "ITC",
+      "name": "Беспроводные микрофоны делегатов (Wi-Fi, 5G).\nФункции: (запрос речи, одобряется ",
+      "price": "68544.63",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:11",
+      "category": "sksp",
+      "sku": "TS-W116",
+      "manufacturer": "ITC",
+      "name": "Точка доступа Wi-Fi для подключения 7 микрофонов . Питание через PoE (Power over",
+      "price": "120961.89000000001",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:12",
+      "category": "sksp",
+      "sku": "TS-W180Q",
+      "manufacturer": "ITC",
+      "name": "Зарядное устройство для микрофонов \nОдно устройство заряжает 2 микрофона одновре",
+      "price": "49143.78",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:13",
+      "category": "sksp",
+      "sku": "PoE-коммутатор CEN-SWPOE-5AC",
+      "manufacturer": "ITC",
+      "name": "UNKNOWN",
+      "price": "93555.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:14",
+      "category": "sksp",
+      "sku": "TS-0300M Full Digital Conference System Controller",
+      "manufacturer": "ITC",
+      "name": "Центральный контроллер для управления системой.\nПоддерживает беспроводные микроф",
+      "price": "229257.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:15",
+      "category": "sksp",
+      "sku": "TS-W301S Conference Chairman Unit",
+      "manufacturer": "ITC",
+      "name": "Беспроводной микрофон председателя (Wi-Fi, 5G) с встроенной колонкой. Функции: п",
+      "price": "112897.26000000002",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:16",
+      "category": "sksp",
+      "sku": "TS-W301SA Conference Delegate Unit",
+      "manufacturer": "ITC",
+      "name": "Беспроводные микрофоны делегатов (Wi-Fi, 5G) с встроенными колонками. Функции: з",
+      "price": "112897.26000000002",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:17",
+      "category": "sksp",
+      "sku": "TS-W116",
+      "manufacturer": "ITC",
+      "name": "Точка доступа Wi-Fi для подключения 7 микрофонов. Питание через PoE (Power over ",
+      "price": "120961.89000000001",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:18",
+      "category": "sksp",
+      "sku": "TS-W180Q",
+      "manufacturer": "ITC",
+      "name": "Зарядное устройство для микрофонов TS-W302/TS-W302A.\nОдно устройство заряжает 2 ",
+      "price": "49143.78",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:19",
+      "category": "sksp",
+      "sku": "PoE-коммутатор CEN-SWPOE-5AC",
+      "manufacturer": "ITC",
+      "name": "UNKNOWN",
+      "price": "93555.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:20",
+      "category": "sksp",
+      "sku": "Televic Confidea FLEX G4",
+      "manufacturer": "televic",
+      "name": "Беспроводная точка доступа (без Dante)",
+      "price": "710519.25",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:21",
+      "category": "sksp",
+      "sku": "Confidea CHT G4",
+      "manufacturer": "televic",
+      "name": "Зарядная станция на 10 аккумуляторов",
+      "price": "255858.75",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:22",
+      "category": "sksp",
+      "sku": "Confidea BP G4",
+      "manufacturer": "televic",
+      "name": "Дополнительный перезаряжаемый литий-ионный аккумулятор для Confidea FLEX G4",
+      "price": "35710.5",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:23",
+      "category": "sksp",
+      "sku": "Mike PLM401F",
+      "manufacturer": "televic",
+      "name": "Микрофон на гусиной шее 40см для беспроводных микрофонных пультов Confidea G4 Fl",
+      "price": "39301.5",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:24",
+      "category": "sksp",
+      "sku": "Confidea FLEX G4",
+      "manufacturer": "televic",
+      "name": "Беспроводная настольная консоль с сенсорным экраном",
+      "price": "278103.0",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    },
+    {
+      "candidate_id": "kuzu:sksp_item:17372:654854:СкСп:25",
+      "category": "sksp",
+      "sku": "Confero 360",
+      "manufacturer": "televic",
+      "name": "Программное обеспечение",
+      "price": "538949.25",
+      "price_source": "sksp_xlsx_ingest",
+      "evidence_task_ids": [
+        80330,
+        80242,
+        80200
+      ]
+    }
+  ],
+  "kuzu_items_total": 23
+}
