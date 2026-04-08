@@ -1,108 +1,239 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List
-
-from ..domain.candidates import CandidateItem
-from ..planning.plan_models import ClassifiedCandidate
+import copy
+import re
+from typing import Any, Iterable
 
 
-def classify_candidate(candidate: CandidateItem) -> ClassifiedCandidate:
-    """Backward-compatible single-item classifier.
+def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
 
-    Some pipeline stages import classify_candidate; internally we classify via batch API.
-    """
-    return classify_candidates([candidate])[0]
+
+def _norm_text(text: Any) -> str:
+    s = str(text or "").strip().casefold()
+    s = re.sub(r"\s+", " ", s)
+    return s
 
 
-def classify_candidates(candidates: Iterable[CandidateItem]) -> List[ClassifiedCandidate]:
-    """Heuristic candidate classifier.
+def _candidate_blob(c: Any) -> str:
+    manufacturer = _obj_get(c, "manufacturer", "") or _obj_get(c, "vendor", "")
+    model = _obj_get(c, "model", "")
+    sku = _obj_get(c, "sku", "")
+    name = _obj_get(c, "name", "")
+    description = _obj_get(c, "description", "")
 
-    Goal:
-      - Provide stable family labels for downstream planning/postprocess.
-      - Avoid hard dependency on any ML model here.
-      - Keep behavior deterministic and explainable.
+    meta = _obj_get(c, "meta", {})
+    if isinstance(meta, dict):
+        manufacturer = manufacturer or meta.get("manufacturer") or meta.get("vendor") or ""
+        model = model or meta.get("model") or ""
+        sku = sku or meta.get("sku") or ""
+        name = name or meta.get("name") or ""
+        description = description or meta.get("description") or ""
 
-    Notes:
-      - This is a baseline. We will later replace/augment with graph+RAG/LLM classifier if needed.
-    """
-    out: List[ClassifiedCandidate] = []
-    for c in candidates:
-        text = _norm_text(f"{c.manufacturer or ''} {c.model or ''} {c.sku or ''} {c.name} {c.description}")
-        family, conf, notes = _infer_family(text)
+        ev = meta.get("evidence_json", {})
+        if isinstance(ev, dict):
+            manufacturer = manufacturer or ev.get("vendor") or ""
+            model = model or ev.get("model") or ""
+            sku = sku or ev.get("sku") or ""
+            name = name or ev.get("name") or ""
+            description = description or ev.get("description") or ""
 
-        out.append(
-            ClassifiedCandidate(
-                candidate_id=c.candidate_id,
-                family=family,
-                family_confidence=conf,
-                capabilities=[],
-                interfaces=[],
-                room_fit=[],
-                notes=notes,
-            )
-        )
+    return _norm_text(f"{manufacturer} {model} {sku} {name} {description}")
+
+
+def _classify_text(text: str) -> str:
+    if not text:
+        return "other"
+
+    if any(
+        x in text
+        for x in [
+            "delegate unit",
+            "пульт делегата",
+            "chairman unit",
+            "пульт председателя",
+            "conference microphone unit",
+        ]
+    ):
+        return "microphone"
+
+    if any(
+        x in text
+        for x in [
+            "central unit",
+            "discussion system",
+            "conference central unit",
+            "центральный блок",
+            "matrix",
+            "switcher",
+            "controller",
+            "процессор",
+            "audio dsp",
+            "conference dsp",
+            "аудиопроцессор",
+            "dsp",
+        ]
+    ):
+        return "controller"
+
+    if any(
+        x in text
+        for x in [
+            "ptz",
+            "conference camera",
+            "usb camera",
+            "webcam",
+            "camera",
+            "камера",
+        ]
+    ):
+        return "camera"
+
+    if any(
+        x in text
+        for x in [
+            "display",
+            "дисплей",
+            "панель",
+            "экран",
+            "monitor",
+            "videowall",
+            "interactive display",
+            "interactive panel",
+            "professional display",
+        ]
+    ):
+        return "display"
+
+    if any(
+        x in text
+        for x in [
+            "microphone",
+            "микрофон",
+            "beamforming",
+            "ceiling microphone",
+            "table microphone",
+        ]
+    ):
+        return "microphone"
+
+    if any(
+        x in text
+        for x in [
+            "speakerphone",
+            "soundbar",
+            "speaker",
+            "акуст",
+            "громкоговор",
+            "amplifier",
+            "усилитель",
+        ]
+    ):
+        return "audio"
+
+    if any(
+        x in text
+        for x in [
+            "smart player",
+            "spinetix",
+            "signage",
+            "cms",
+            "license",
+            "лиценз",
+            "software",
+            "elementi",
+        ]
+    ):
+        return "software"
+
+    if any(x in text for x in ["ops", "slot pc", "ops pc", "ops-пк"]):
+        return "ops"
+
+    if any(
+        x in text
+        for x in [
+            "mount",
+            "bracket",
+            "wall mount",
+            "ceiling mount",
+            "стойка",
+            "кронштейн",
+            "тележка",
+            "trolley",
+        ]
+    ):
+        return "mount"
+
+    if any(
+        x in text
+        for x in [
+            "cable",
+            "кабель",
+            "hdmi",
+            "usb",
+            "displayport",
+            "vga",
+            "xlr",
+            "cat6",
+            "cat.6",
+            "hdbaset",
+        ]
+    ):
+        return "cable"
+
+    return "other"
+
+
+def _category_for_candidate(candidate: Any) -> str:
+    return _classify_text(_candidate_blob(candidate))
+
+
+def _with_classification(candidate: Any, category: str) -> Any:
+    meta = _obj_get(candidate, "meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
+
+    new_meta = dict(meta)
+    new_meta["classified_category"] = category
+
+    # Pydantic v2
+    if hasattr(candidate, "model_copy"):
+        try:
+            return candidate.model_copy(update={"meta": new_meta})
+        except Exception:
+            pass
+
+    # dict-like
+    if isinstance(candidate, dict):
+        new_candidate = dict(candidate)
+        new_candidate["meta"] = new_meta
+        return new_candidate
+
+    # generic object
+    try:
+        new_candidate = copy.copy(candidate)
+    except Exception:
+        new_candidate = candidate
+
+    try:
+        setattr(new_candidate, "meta", new_meta)
+    except Exception:
+        pass
+
+    return new_candidate
+
+
+def classify_candidate(candidate: Any) -> str:
+    return _category_for_candidate(candidate)
+
+
+def classify_candidates(candidates: Iterable[Any]) -> list[Any]:
+    out: list[Any] = []
+    for candidate in candidates:
+        category = _category_for_candidate(candidate)
+        out.append(_with_classification(candidate, category))
     return out
-
-
-def _norm_text(s: str) -> str:
-    return " ".join((s or "").lower().replace("\u00a0", " ").split())
-
-
-def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
-    """Return (family, confidence, notes)."""
-    notes: list[str] = []
-
-    # Strong signals first
-    rules: list[tuple[str, str]] = [
-        ("conference_unit", "конференц-система конференц система председателя делегата пульт председателя пульт делегата"),
-        ("mic_gooseneck", "микрофон гусиная шея goose"),
-        ("mic_wireless", "радиомикрофон wireless ручной петличный головной"),
-        ("speaker", "акустика громкоговоритель колонка сателлит сабвуфер soundbar"),
-        ("amp", "усилитель power amplifier"),
-        ("dsp", "dsp процессор обработки аудио аудиопроцессор"),
-        ("mixer", "микшер микшерный пульт"),
-        ("camera", "камера ptz zoom видеокамера"),
-        ("capture", "плата захвата capture usb capture"),
-        ("switch", "коммутатор switch poe"),
-        ("router", "маршрутизатор router"),
-        ("display", "дисплей панель lcd led tv телевизор"),
-        ("projector", "проектор projector"),
-        ("screen", "экран projection screen"),
-        ("led_wall", "светодиодный экран led кабинет модуль novastar"),
-        ("controller", "контроллер processor scalers видеопроцессор"),
-        ("mount", "крепление кронштейн стойка настенное потолочное"),
-        ("cable", "кабель hdmi dp displayport usb xlr utp sftp cat6 cat5"),
-        ("power", "блок питания power supply адаптер"),
-        ("accessory", "комплект расходные материалы разъем коннектор"),
-    ]
-
-    for fam, kws in rules:
-        if _contains_any(text, kws.split()):
-            # Confidence heuristic
-            conf = 0.75
-            if fam in {"cable", "accessory"}:
-                conf = 0.55
-            if fam in {"led_wall", "conference_unit", "camera", "dsp", "amp"}:
-                conf = 0.85
-            notes.append(f"rule_match:{fam}")
-            return fam, conf, notes
-
-    # Weak fallback: try SKU/manufacturer patterns
-    if "relacart" in text:
-        notes.append("weak_match:relacart")
-        return "conference_unit", 0.55, notes
-    if "novastar" in text:
-        notes.append("weak_match:novastar")
-        return "controller", 0.55, notes
-
-    return None, 0.0, ["unclassified"]
-
-
-def _contains_any(text: str, tokens: list[str]) -> bool:
-    for t in tokens:
-        if not t:
-            continue
-        if t in text:
-            return True
-    return False
