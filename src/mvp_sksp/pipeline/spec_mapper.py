@@ -31,12 +31,15 @@ _FAMILY_TO_CATEGORY = {
     "ceiling_mic_array": "conference",
     "speakerphone": "conference",
     "conference_controller": "conference",
+    "discussion_central_unit": "conference",
+    "discussion_dsp": "conference",
     "dsp": "conference",
     "usb_dsp_bridge": "conference",
     "wall_speaker": "conference",
     "ceiling_speaker": "conference",
     "soundbar": "conference",
     "amplifier": "conference",
+    "power_supply_discussion": "conference",
     "byod_wireless_presentation": "signal_transport",
     "byod_usb_hdmi_gateway": "signal_transport",
     "usb_c_dock": "signal_transport",
@@ -50,6 +53,7 @@ _FAMILY_TO_CATEGORY = {
     "cable_hdmi": "signal_transport",
     "cable_usb": "signal_transport",
     "cable_cat": "signal_transport",
+    "cabling_av": "signal_transport",
     "adapters_kit": "signal_transport",
     "mounting_kit": "signal_transport",
     "power_accessories": "signal_transport",
@@ -101,6 +105,7 @@ def _line_family(line: Any, cls_by_id: dict[str, Any]) -> str | None:
         category = getattr(line, "category", None)
         sku = getattr(line, "sku", None)
         manufacturer = getattr(line, "manufacturer", None)
+        model = getattr(line, "model", None)
         name = getattr(line, "name", None) or getattr(line, "description", "") or ""
         description = getattr(line, "description", None)
 
