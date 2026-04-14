@@ -24,6 +24,32 @@ def _top_items_brief(spec: Any, limit: int = 18) -> list[dict[str, Any]]:
     return out
 
 
+def _as_clean_list(v: Any) -> list[str]:
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    s = str(v).strip()
+    return [s] if s else []
+
+
+def _append_unique(base: list[str], extra: list[str], *, reject_prefixes: tuple[str, ...] = ()) -> list[str]:
+    out = list(base or [])
+    seen = set(out)
+
+    for x in extra:
+        s = str(x).strip()
+        if not s:
+            continue
+        if reject_prefixes and any(s.startswith(p) for p in reject_prefixes):
+            continue
+        if s not in seen:
+            out.append(s)
+            seen.add(s)
+
+    return out
+
+
 def try_llm_explain(
     *,
     llm: ChatCompletionClient,
@@ -32,8 +58,12 @@ def try_llm_explain(
     topology: TopologyDecision,
 ) -> None:
     """
-    B) Small separate LLM pass ONLY for explanations/questions.
-    Never edits spec lines. If fails -> do nothing (fallback already exists).
+    Small separate LLM pass ONLY for explanations/questions.
+    Never edits spec lines.
+
+    ВАЖНО:
+    - не перезаписывает already-grounded fallback explanations
+    - не добавляет LLM-generated [price_missing] risks
     """
     payload = {
         "request_summary": getattr(spec, "project_summary", "") or "",
@@ -62,31 +92,34 @@ def try_llm_explain(
     text = llm.complete([{"role": "system", "text": system}, {"role": "user", "text": user}])
     data = extract_json_object(text)
 
-    why_comp = list(data.get("why_composition", []) or [])
-    why_qty = list(data.get("why_qty_and_price", []) or [])
-    qs = list(data.get("manager_questions", []) or [])
-    ass = list(data.get("assumptions", []) or [])
-    risks = list(data.get("risks", []) or [])
+    why_comp = _as_clean_list(data.get("why_composition", []))
+    why_qty = _as_clean_list(data.get("why_qty_and_price", []))
+    qs = _as_clean_list(data.get("manager_questions", []))
+    ass = _as_clean_list(data.get("assumptions", []))
+    risks = _as_clean_list(data.get("risks", []))
 
-    if why_comp:
-        setattr(spec, "why_composition", [str(x) for x in why_comp if str(x).strip()])
-    if why_qty:
-        setattr(spec, "why_qty_and_price", [str(x) for x in why_qty if str(x).strip()])
+    # Никогда не доверяем LLM price_missing — это должен решать validator/fallback.
+    risks = [x for x in risks if not x.startswith("[price_missing]")]
+
+    current_why_comp = list(getattr(spec, "why_composition", []) or [])
+    current_why_qty = list(getattr(spec, "why_qty_and_price", []) or [])
+    current_qs = list(getattr(spec, "manager_questions", []) or [])
+    current_ass = list(getattr(spec, "assumptions", []) or [])
+    current_risks = list(getattr(spec, "risks", []) or [])
+
+    # Fallback explanations grounded in final spec > LLM. Заполняем только если пусто.
+    if not current_why_comp and why_comp:
+        setattr(spec, "why_composition", why_comp)
+
+    if not current_why_qty and why_qty:
+        setattr(spec, "why_qty_and_price", why_qty)
+
+    # Вопросы/допущения/риски можно только аккуратно дополнять.
     if qs:
-        setattr(spec, "manager_questions", [str(x) for x in qs if str(x).strip()])
+        setattr(spec, "manager_questions", _append_unique(current_qs, qs))
 
-    if ass and hasattr(spec, "assumptions"):
-        cur = list(getattr(spec, "assumptions", []) or [])
-        for x in ass:
-            s = str(x).strip()
-            if s and s not in cur:
-                cur.append(s)
-        setattr(spec, "assumptions", cur)
+    if hasattr(spec, "assumptions"):
+        setattr(spec, "assumptions", _append_unique(current_ass, ass))
 
-    if risks and hasattr(spec, "risks"):
-        cur = list(getattr(spec, "risks", []) or [])
-        for x in risks:
-            s = str(x).strip()
-            if s and s not in cur:
-                cur.append(s)
-        setattr(spec, "risks", cur)
+    if hasattr(spec, "risks"):
+        setattr(spec, "risks", _append_unique(current_risks, risks, reject_prefixes=("[price_missing]",)))

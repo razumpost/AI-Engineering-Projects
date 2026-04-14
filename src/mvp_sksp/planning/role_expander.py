@@ -18,16 +18,65 @@ class ExpandedRole:
     notes: list[str] = field(default_factory=list)
 
 
+def _discussion_only_meeting_room(requirements: ProjectRequirements) -> bool:
+    if requirements.room_type != "meeting_room":
+        return False
+
+    seat_count = requirements.caps.seat_count or 0
+    if seat_count < 8:
+        return False
+
+    if requirements.flags.vks or requirements.flags.byod or requirements.flags.presentation:
+        return False
+    if requirements.caps.display_count or requirements.caps.camera_count:
+        return False
+
+    return bool(requirements.flags.control)
+
+
+def _needs_display_role(requirements: ProjectRequirements) -> bool:
+    if requirements.room_type != "meeting_room":
+        return True
+    if _discussion_only_meeting_room(requirements):
+        return False
+    return bool(
+        requirements.flags.presentation
+        or requirements.flags.vks
+        or requirements.caps.display_count
+    )
+
+
+def _needs_signal_switching(requirements: ProjectRequirements) -> bool:
+    if requirements.room_type != "meeting_room":
+        return True
+    if _discussion_only_meeting_room(requirements):
+        return False
+    return bool(
+        requirements.flags.presentation
+        or requirements.flags.byod
+        or requirements.flags.vks
+        or requirements.caps.display_count
+    )
+
+
 def _enabled_capabilities(requirements: ProjectRequirements, room_default_caps: list[str]) -> list[str]:
-    enabled = set(room_default_caps)
+    enabled = set()
+
+    for cap in room_default_caps:
+        if cap == "presentation" and not _needs_display_role(requirements):
+            continue
+        enabled.add(cap)
+
     for cap_key, enabled_flag in requirements.flags.model_dump().items():
         if enabled_flag:
             enabled.add(cap_key)
+
     return sorted(enabled)
 
 
 def _filter_allowed_families(role_key: str, role_def: RoleDef, requirements: ProjectRequirements) -> list[str]:
     allowed = list(role_def.allowed_families)
+    discussion_only = _discussion_only_meeting_room(requirements)
 
     if requirements.exclusions.projector or requirements.room_type == "meeting_room":
         allowed = [f for f in allowed if f != "projector"]
@@ -58,11 +107,48 @@ def _filter_allowed_families(role_key: str, role_def: RoleDef, requirements: Pro
         blocked_operator = {"operator_monitor", "recorder", "stream_encoder"}
         allowed = [f for f in allowed if f not in blocked_operator]
 
+    if discussion_only:
+        if role_key == "room_conference_controller":
+            for fam in ["discussion_central_unit", "conference_controller"]:
+                if fam not in allowed:
+                    allowed.append(fam)
+
+        if role_key == "room_audio_processing":
+            for fam in ["discussion_dsp", "dsp", "conference_controller"]:
+                if fam not in allowed:
+                    allowed.append(fam)
+
+        if role_key == "room_cabling_and_accessories":
+            for fam in ["cabling_av", "power_supply_discussion", "power_accessories"]:
+                if fam not in allowed:
+                    allowed.append(fam)
+
+        if role_key == "room_audio_capture":
+            allowed = [f for f in allowed if f not in {"speakerphone", "videobar"}]
+            for fam in ["delegate_unit", "chairman_unit", "tabletop_mic", "ceiling_mic_array"]:
+                if fam not in allowed:
+                    allowed.append(fam)
+    else:
+        # ordinary meeting room: никаких discussion family по умолчанию
+        if role_key == "room_audio_capture":
+            allowed = [
+                f for f in allowed
+                if f not in {"delegate_unit", "chairman_unit", "discussion_central_unit", "conference_controller"}
+            ]
+        if role_key == "room_audio_processing":
+            allowed = [
+                f for f in allowed
+                if f not in {"discussion_dsp", "conference_controller", "discussion_central_unit"}
+            ]
+        if role_key == "room_conference_controller":
+            allowed = []
+
     return allowed
 
 
 def _preferred_families(role_key: str, requirements: ProjectRequirements, allowed: list[str]) -> list[str]:
     seat_count = requirements.caps.seat_count or 0
+    discussion_only = _discussion_only_meeting_room(requirements)
 
     presets: dict[str, list[str]] = {
         "room_display_main": ["display_panel", "interactive_panel"],
@@ -80,16 +166,32 @@ def _preferred_families(role_key: str, requirements: ProjectRequirements, allowe
     }
 
     if role_key == "room_audio_capture":
-        if seat_count >= 8:
+        if discussion_only:
             presets[role_key] = ["delegate_unit", "chairman_unit", "tabletop_mic", "ceiling_mic_array"]
+        elif seat_count >= 8:
+            presets[role_key] = ["ceiling_mic_array", "tabletop_mic", "speakerphone", "videobar"]
         else:
-            presets[role_key] = ["speakerphone", "tabletop_mic", "videobar"]
+            presets[role_key] = ["speakerphone", "videobar", "tabletop_mic"]
 
     if role_key == "room_audio_playback":
-        if requirements.room_type == "meeting_room":
+        if discussion_only:
+            presets[role_key] = ["wall_speaker", "ceiling_speaker", "soundbar"]
+        elif requirements.room_type == "meeting_room":
             presets[role_key] = ["soundbar", "wall_speaker", "ceiling_speaker", "videobar"]
         else:
             presets[role_key] = ["line_array", "active_speaker", "wall_speaker", "ceiling_speaker"]
+
+    if role_key == "room_audio_processing":
+        if discussion_only:
+            presets[role_key] = ["discussion_dsp", "dsp", "conference_controller"]
+        else:
+            presets[role_key] = ["dsp", "usb_dsp_bridge"]
+
+    if role_key == "room_conference_controller" and discussion_only:
+        presets[role_key] = ["discussion_central_unit", "conference_controller"]
+
+    if role_key == "room_cabling_and_accessories" and discussion_only:
+        presets[role_key] = ["cabling_av", "power_supply_discussion", "power_accessories"]
 
     wanted = presets.get(role_key, [])
     result = [f for f in wanted if f in allowed]
@@ -137,10 +239,12 @@ def _build_role(role_key: str, source: str, requirements: ProjectRequirements, r
         notes.append("Роль добавлена из caps.camera_count > 1.")
     if role_key == "room_display_main" and requirements.room_type == "meeting_room":
         notes.append("Для переговорной по умолчанию предпочтительнее panel family, не projector.")
-    if role_key == "room_audio_capture" and (requirements.caps.seat_count or 0) >= 8:
+    if role_key == "room_audio_capture" and (requirements.caps.seat_count or 0) >= 8 and not _discussion_only_meeting_room(requirements):
         notes.append(
-            "Для переговорных на 8+ мест предпочтительнее конференц-система/настольные/потолочные микрофоны, а не одиночный speakerphone."
+            "Для переговорных на 8+ мест предпочтительнее потолочные/настольные конференц-микрофоны, а не discussion system."
         )
+    if _discussion_only_meeting_room(requirements):
+        notes.append("Discussion-only meeting room heuristic is active.")
 
     return ExpandedRole(
         role_key=role_key,
@@ -164,36 +268,68 @@ def expand_required_roles(requirements: ProjectRequirements) -> list[ExpandedRol
     seen: set[str] = set()
 
     room_def = km.room_types[requirements.room_type]
+    discussion_only = _discussion_only_meeting_room(requirements)
+
     for role_key in room_def.default_roles:
+        if role_key == "room_display_main" and not _needs_display_role(requirements):
+            continue
+        if role_key == "room_signal_switching" and not _needs_signal_switching(requirements):
+            continue
+        if role_key == "room_conference_controller" and not discussion_only:
+            continue
+
         role_def = km.roles.get(role_key)
         if not role_def or role_key in seen:
             continue
-        out.append(_build_role(role_key, "room_type", requirements, role_def))
-        seen.add(role_key)
+
+        built = _build_role(role_key, "room_type", requirements, role_def)
+        if built.allowed_families:
+            out.append(built)
+            seen.add(role_key)
 
     for cap_key in _enabled_capabilities(requirements, room_def.default_capabilities):
         cap_def = km.capabilities.get(cap_key)
         if not cap_def:
             continue
         for role_key in cap_def.adds_roles:
+            if role_key == "room_display_main" and not _needs_display_role(requirements):
+                continue
+            if role_key == "room_signal_switching" and not _needs_signal_switching(requirements):
+                continue
+            if role_key == "room_conference_controller" and not discussion_only:
+                continue
+
             role_def = km.roles.get(role_key)
             if not role_def or role_key in seen:
                 continue
-            out.append(_build_role(role_key, f"capability:{cap_key}", requirements, role_def))
-            seen.add(role_key)
 
-    # Derived roles from quantitative requirements
+            built = _build_role(role_key, f"capability:{cap_key}", requirements, role_def)
+            if built.allowed_families:
+                out.append(built)
+                seen.add(role_key)
+
     if requirements.room_type == "meeting_room":
         cam_count = requirements.caps.camera_count or 0
         if cam_count > 1 and "room_camera_secondary" not in seen:
             role_def = km.roles.get("room_camera_secondary")
             if role_def:
-                out.append(_build_role("room_camera_secondary", "derived:camera_count", requirements, role_def))
-                seen.add("room_camera_secondary")
+                built = _build_role("room_camera_secondary", "derived:camera_count", requirements, role_def)
+                if built.allowed_families:
+                    out.append(built)
+                    seen.add("room_camera_secondary")
+
+    if discussion_only:
+        for role_key in ["room_audio_processing", "room_conference_controller"]:
+            if role_key not in seen:
+                role_def = km.roles.get(role_key)
+                if role_def:
+                    built = _build_role(role_key, "derived:discussion_only", requirements, role_def)
+                    if built.allowed_families:
+                        out.append(built)
+                        seen.add(role_key)
 
     return out
 
 
 def expand_req(requirements: ProjectRequirements) -> ProjectRequirements:
-    """Backward-compatible alias used by older orchestrators/CLIs."""
     return requirements

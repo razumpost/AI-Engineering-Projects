@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Optional
 
+from ..adapters.price_classifier import classify_price_item
 from ..domain.candidates import CandidatePool, CandidateItem
 from ..domain.ops import PatchOperation, ItemRef
 from ..domain.spec import Spec, norm_key
@@ -36,6 +37,10 @@ def _extract_cam_count(text: str) -> Optional[int]:
         return None
 
 
+def _candidate_scope(ci: CandidateItem) -> str:
+    return classify_price_item(ci.name or "", ci.description or "")
+
+
 def _candidate_quality_score(ci: CandidateItem) -> int:
     s = 0
     if ci.sku:
@@ -49,29 +54,40 @@ def _candidate_quality_score(ci: CandidateItem) -> int:
     return s
 
 
-def _prefer_scopes_from_query(query: str, categories: set[str]) -> list[str]:
+def _prefer_scopes_from_query(query: str, scopes: set[str]) -> list[str]:
     q = (query or "").casefold()
-    # НЕ "жёсткий набор", а мягкая подсказка: если явно ВКС/переговорная — приоритетим эти scope,
-    # иначе берём самые частые по кандидатурам.
     prefer: list[str] = []
-    if "вкс" in q or "переговор" in q or "conference" in q:
-        for c in ["conference", "cameras", "signal_transport", "processing"]:
-            if c in categories:
+
+    meeting_room_like = any(x in q for x in ["переговор", "conference", "meeting room"])
+    wants_display = any(x in q for x in ["дисплей", "панель", "экран", "display", "monitor"])
+    wants_camera = any(x in q for x in ["камера", "camera", "ptz"])
+    wants_mic = any(x in q for x in ["микрофон", "microphone", "mic"])
+    wants_audio = any(x in q for x in ["акуст", "speaker", "soundbar", "audio"])
+
+    if meeting_room_like or wants_display or wants_camera or wants_mic:
+        for c in ["display", "camera", "microphone", "audio", "controller"]:
+            if c in scopes:
                 prefer.append(c)
-    if not prefer:
-        prefer = []
+
     return prefer
 
 
 def _qty_hint(ci: CandidateItem, *, seat_count: Optional[int], cam_count: Optional[int]) -> Decimal:
-    # Никаких SKU-хардкодов. Только общие, прозрачные правила.
+    scope = _candidate_scope(ci)
     name = f"{ci.name} {ci.description}".casefold()
-    if ci.category == "cameras" and cam_count and ("камера" in name or "camera" in name or "ptz" in name):
-        return Decimal(cam_count)
-    if ci.category == "conference" and seat_count and _RE_MIC.search(name):
-        # MVP правило: если это микрофон в переговорке — по местам (потом уточним/оптимизируем)
+
+    if scope == "camera" and cam_count and ("камера" in name or "camera" in name or "ptz" in name):
+        return Decimal(1)
+
+    if scope == "microphone" and seat_count and _RE_MIC.search(name):
         return Decimal(seat_count)
+
     return Decimal(1)
+
+
+def _is_query_software_first(query_text: str) -> bool:
+    q = (query_text or "").casefold()
+    return any(x in q for x in ["signage", "digital signage", "cms", "spinetix", "player", "лиценз", "software"])
 
 
 def build_autofill_ops(
@@ -84,11 +100,10 @@ def build_autofill_ops(
     hard_cap: int = 70,
 ) -> list[PatchOperation]:
     """
-    If LLM produced too few lines, auto-append a richer draft using precedent items.
-    Uses:
-      - candidate pool items (already from top tasks snapshots)
-      - dedupe by item_key
-      - light qty hints from query (seats/cameras) without SKU hardcodes
+    Осторожный autofill:
+    - для ordinary meeting room сначала добирает только core scopes
+    - не тащит software/ops/cable/mount как filler по умолчанию
+    - mount/cable допускает только после появления core lines
     """
     if len(spec.items) >= min_lines:
         return []
@@ -97,23 +112,42 @@ def build_autofill_ops(
     cam_count = _extract_cam_count(query_text)
 
     existing_keys = {it.item_key for it in spec.items}
-    categories = {ci.category for ci in pool.items if ci.category}
-    prefer_scopes = _prefer_scopes_from_query(query_text, categories)
+    scopes = {_candidate_scope(ci) for ci in pool.items}
+    prefer_scopes = _prefer_scopes_from_query(query_text, scopes)
 
-    # prioritize items that:
-    # - have good fields
-    # - belong to preferred scopes
-    # - have evidence_task_ids
-    def score(ci: CandidateItem) -> tuple[int, int]:
+    software_first = _is_query_software_first(query_text)
+    core_scopes = {"display", "camera", "microphone", "audio", "controller"}
+    support_scopes = {"mount", "cable"}
+    bad_scopes = {"software", "ops"} if not software_first else set()
+
+    current_core_in_spec = 0
+    for it in spec.items:
+        blob = f"{getattr(it, 'name', '')} {getattr(it, 'description', '')}"
+        sc = classify_price_item(blob, "")
+        if sc in core_scopes:
+            current_core_in_spec += 1
+
+    def score(ci: CandidateItem) -> tuple[int, int, int]:
         base = _candidate_quality_score(ci)
-        pref = 2 if ci.category in prefer_scopes else 0
+        scope = _candidate_scope(ci)
+        pref = 3 if scope in prefer_scopes else 0
         ev = 1 if ci.evidence_task_ids else 0
-        return (pref + ev, base)
+
+        # core scopes всегда выше support
+        scope_rank = 0
+        if scope in core_scopes:
+            scope_rank = 3
+        elif scope in support_scopes:
+            scope_rank = 1
+        elif scope in bad_scopes:
+            scope_rank = -5
+
+        return (pref + ev + scope_rank, base, len(ci.evidence_task_ids or []))
 
     candidates = sorted(pool.items, key=score, reverse=True)
 
-    per_scope_min = 4 if prefer_scopes else 0
-    per_scope_count: dict[str, int] = {}
+    per_scope_min = 1 if prefer_scopes else 0
+    per_scope_count: dict[str, int] = {k: 0 for k in prefer_scopes}
 
     ops: list[PatchOperation] = []
     added = 0
@@ -122,7 +156,6 @@ def build_autofill_ops(
         if len(spec.items) + added >= hard_cap:
             break
 
-        # create item_key in the same way editor does: manufacturer+sku+name fallback
         mk = norm_key(ci.manufacturer or "")
         sk = norm_key(ci.sku or "")
         nk = norm_key(ci.name or ci.description or "")
@@ -131,37 +164,49 @@ def build_autofill_ops(
         if item_key in existing_keys:
             continue
 
-        # coverage: ensure we include at least per_scope_min items from each preferred scope
-        if prefer_scopes and ci.category in prefer_scopes:
-            per_scope_count.setdefault(ci.category, 0)
+        scope = _candidate_scope(ci)
+
+        if scope in bad_scopes:
+            continue
+
+        # пока не закрыли core scopes — support не добавляем
+        core_covered_total = current_core_in_spec + sum(v for k, v in per_scope_count.items() if k in core_scopes)
+        if scope in support_scopes and core_covered_total < max(2, len([x for x in prefer_scopes if x in core_scopes])):
+            continue
 
         if prefer_scopes and per_scope_min:
-            # if some preferred scopes still underfilled, prioritize them
             underfilled = [s for s in prefer_scopes if per_scope_count.get(s, 0) < per_scope_min]
-            if underfilled and ci.category not in underfilled:
+            if underfilled and scope not in underfilled:
                 continue
 
         qty = _qty_hint(ci, seat_count=seat_count, cam_count=cam_count)
 
+        # для камер не множим основной camera line в autofill
+        if scope == "camera" and cam_count and qty > 1:
+            qty = Decimal(1)
+
         ops.append(
             PatchOperation(
                 op="add_line",
-                category=ci.category,
+                category=scope,
                 item=ItemRef(candidate_id=ci.candidate_id),
                 qty=qty,
-                reason="Автозаполнение по прецедентам (граф/Kuzu)",
+                reason="Осторожное автозаполнение по core scopes",
                 evidence_task_ids=list(ci.evidence_task_ids),
             )
         )
 
         existing_keys.add(item_key)
         added += 1
-        if ci.category in prefer_scopes:
-            per_scope_count[ci.category] = per_scope_count.get(ci.category, 0) + 1
+        if scope in per_scope_count:
+            per_scope_count[scope] = per_scope_count.get(scope, 0) + 1
 
-        # stop when we reached target fullness
+        # ordinary meeting room не надо раздувать filler-линиями
+        if prefer_scopes and all(per_scope_count.get(s, 0) >= per_scope_min for s in prefer_scopes):
+            if len(ops) >= max(4, len(prefer_scopes) + 1):
+                break
+
         if len(spec.items) + added >= target_lines:
             break
 
-    # If still tiny (pool small), just return what we have
     return ops

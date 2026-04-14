@@ -1,182 +1,167 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
+
+from ..knowledge.models import ProjectRequirements
+from ..normalization.candidate_classifier import classify_candidate
+from .plan_models import TopologyDecision
 
 
-# =========================
-# Helpers (safe access)
-# =========================
-
-def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-
-def _meta_get(obj: Any, key: str, default: Any = None) -> Any:
-    meta = _obj_get(obj, "meta", None)
-    if isinstance(meta, dict):
-        return meta.get(key, default)
-    return default
-
-
-def _norm(s: Any) -> str:
-    return str(s or "").strip().casefold()
-
-
-# =========================
-# Family resolution (CRITICAL FIX)
-# =========================
-
-def _guess_family(li: Any) -> str:
-    # 1) прямые поля
-    for key in ("family", "equipment_family", "graph_family", "category"):
-        v = _obj_get(li, key, None)
-        if v:
-            return _norm(v)
-
-    # 2) meta
-    for key in ("family", "equipment_family", "graph_family", "category"):
-        v = _meta_get(li, key, None)
-        if v:
-            return _norm(v)
-
-    # 3) role → family
-    role = _norm(_obj_get(li, "role", None) or _meta_get(li, "role", None))
-
-    role_map = {
-        "delegate_unit": "delegate_unit",
-        "chairman_unit": "chairman_unit",
-        "discussion_central_unit": "discussion_central_unit",
-        "discussion_dsp": "discussion_dsp",
-        "power_supply_discussion": "power_supply_discussion",
-        "ptz_camera": "ptz_camera",
-        "display": "display",
-        "microphone": "microphone",
-        "speakerphone": "speakerphone",
-        "audio_processor": "audio_processor",
-        "cabling_av": "cabling_av",
-    }
-
-    if role in role_map:
-        return role_map[role]
-
-    # 4) fallback по тексту
-    blob = " ".join(
+def _line_key(line: Any) -> str:
+    for key in ("item_key", "line_id", "candidate_id"):
+        val = getattr(line, key, None)
+        if val:
+            return str(val)
+    return "::".join(
         [
-            _norm(_obj_get(li, "name", None)),
-            _norm(_obj_get(li, "description", None)),
-            _norm(_meta_get(li, "name", None)),
-            _norm(_meta_get(li, "description", None)),
+            str(getattr(line, "manufacturer", "") or ""),
+            str(getattr(line, "sku", "") or ""),
+            str(getattr(line, "model", "") or ""),
+            str(getattr(line, "name", "") or ""),
         ]
-    )
-
-    if any(x in blob for x in ["пульт делегата", "delegate unit"]):
-        return "delegate_unit"
-    if any(x in blob for x in ["пульт председателя", "chairman unit"]):
-        return "chairman_unit"
-    if any(x in blob for x in ["central unit", "центральный блок", "discussion system"]):
-        return "discussion_central_unit"
-    if any(x in blob for x in ["audio dsp", "conference dsp", "аудиопроцессор", "dsp"]):
-        return "discussion_dsp"
-    if any(x in blob for x in ["power supply", "блок питания", "extender"]):
-        return "power_supply_discussion"
-    if any(x in blob for x in ["ptz", "conference camera", "usb camera", "камера"]):
-        return "ptz_camera"
-    if any(x in blob for x in ["display", "дисплей", "панель", "экран"]):
-        return "display"
-    if any(x in blob for x in ["microphone", "микрофон", "beamforming"]):
-        return "microphone"
-    if any(x in blob for x in ["speakerphone", "soundbar", "акуст", "speaker"]):
-        return "speakerphone"
-    if any(x in blob for x in ["cable", "кабель", "hdmi", "usb", "xlr", "cat6"]):
-        return "cabling_av"
-
-    return ""
+    ).casefold()
 
 
-# =========================
-# Quantity helpers
-# =========================
-
-def _qty_of(li: Any) -> int:
-    v = _obj_get(li, "qty", None)
-    if v is None:
-        v = _meta_get(li, "qty", None)
+def _line_qty(line: Any) -> float:
     try:
-        return int(v or 0)
+        return float(getattr(line, "qty", 0) or 0)
     except Exception:
-        return 0
+        return 0.0
 
 
-def _count(plan: List[Any], family: str) -> int:
-    family = _norm(family)
-    total = 0
-    for li in plan:
-        if _guess_family(li) == family:
-            total += _qty_of(li)
-    return total
+def _set_line_qty(line: Any, qty: int | float) -> None:
+    try:
+        setattr(line, "qty", qty)
+    except Exception:
+        pass
 
 
-# =========================
-# Main resolver
-# =========================
+def _drop_lines(spec: Any, lines: list[Any]) -> None:
+    drop_keys = {_line_key(x) for x in lines}
+    items = [x for x in list(getattr(spec, "items", []) or []) if _line_key(x) not in drop_keys]
+    setattr(spec, "items", items)
 
-def resolve_quantities(plan: List[Any], meta: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Универсальный расчет количеств с учетом:
-    - graph family
-    - fallback эвристик
-    - meta (например camera_count, seats)
-    """
 
-    result: Dict[str, Any] = {}
+def _family_lines(spec: Any) -> dict[str, list[Any]]:
+    items = list(getattr(spec, "items", []) or [])
+    out: dict[str, list[Any]] = {}
 
-    # Камеры
-    camera_count = int(meta.get("camera_count") or _count(plan, "ptz_camera") or 0)
-    if camera_count > 0:
-        result["ptz_camera"] = camera_count
+    for line in items:
+        fam = classify_candidate(line).family
+        if not fam:
+            continue
+        out.setdefault(fam, []).append(line)
 
-    # Дисплеи
-    display_count = _count(plan, "display")
-    if display_count > 0:
-        result["display"] = display_count
+    return out
 
-    # Микрофоны
-    mic_count = _count(plan, "microphone")
-    if mic_count > 0:
-        result["microphone"] = mic_count
 
-    # Делегатская система
-    delegate_count = int(meta.get("seats") or _count(plan, "delegate_unit") or 0)
-    if delegate_count > 0:
-        result["delegate_unit"] = delegate_count
+def _pick_best_line(lines: list[Any]) -> Any:
+    def score(line: Any) -> tuple[float, float]:
+        price = 0.0
+        try:
+            price = float(getattr(line, "unit_price_rub", 0) or 0)
+        except Exception:
+            price = 0.0
+        desc_len = float(len(str(getattr(line, "description", "") or "")))
+        return (1.0 if price > 0 else 0.0, desc_len)
 
-    chairman_count = _count(plan, "chairman_unit") or (1 if delegate_count > 0 else 0)
-    if chairman_count > 0:
-        result["chairman_unit"] = chairman_count
+    return sorted(lines, key=score, reverse=True)[0]
 
-    central_unit = _count(plan, "discussion_central_unit") or (
-        1 if delegate_count > 0 else 0
-    )
-    if central_unit > 0:
-        result["discussion_central_unit"] = central_unit
 
-    # DSP
-    dsp_count = _count(plan, "discussion_dsp")
-    if dsp_count > 0:
-        result["discussion_dsp"] = dsp_count
+def _keep_one(spec: Any, fam: dict[str, list[Any]], family: str) -> dict[str, list[Any]]:
+    lines = fam.get(family, [])
+    if not lines:
+        return fam
 
-    # Питание
-    psu_count = _count(plan, "power_supply_discussion")
-    if psu_count > 0:
-        result["power_supply_discussion"] = psu_count
+    best = _pick_best_line(lines)
+    _drop_lines(spec, [x for x in lines if _line_key(x) != _line_key(best)])
+    return _family_lines(spec)
 
-    # Кабели (обычно не считаем жестко, но оставим)
-    cable_count = _count(plan, "cabling_av")
-    if cable_count > 0:
-        result["cabling_av"] = cable_count
 
-    return result
+def resolve_quantities(
+    spec: Any,
+    source_pool: Any,
+    requirements: ProjectRequirements,
+    topology: TopologyDecision,
+) -> list[str]:
+    _ = source_pool
+    _ = topology
+
+    warnings: list[str] = []
+    seat_count = int(requirements.caps.seat_count or 0)
+
+    fam = _family_lines(spec)
+
+    for family in [
+        "delegate_unit",
+        "chairman_unit",
+        "discussion_central_unit",
+        "power_supply_discussion",
+        "discussion_dsp",
+        "wall_speaker",
+        "ceiling_speaker",
+        "soundbar",
+    ]:
+        fam = _keep_one(spec, fam, family)
+
+    chairman_present = bool(fam.get("chairman_unit"))
+
+    # delegate count:
+    # если есть отдельный председатель, считаем места как total seats incl chairman
+    # => delegates = seats - 1
+    delegate_lines = fam.get("delegate_unit", [])
+    if delegate_lines:
+        best = _pick_best_line(delegate_lines)
+        if seat_count > 0:
+            desired = max(1, seat_count - 1) if chairman_present else seat_count
+        else:
+            desired = max(1, int(round(_line_qty(best) or 1)))
+        _set_line_qty(best, desired)
+        warnings.append(f"Quantity resolver: delegate_unit qty set to {desired}")
+        fam = _family_lines(spec)
+
+    chairman_lines = fam.get("chairman_unit", [])
+    if chairman_lines:
+        best = _pick_best_line(chairman_lines)
+        _set_line_qty(best, 1)
+        warnings.append("Quantity resolver: chairman_unit qty set to 1")
+        fam = _family_lines(spec)
+
+    central_lines = fam.get("discussion_central_unit", [])
+    if central_lines:
+        best = _pick_best_line(central_lines)
+        _set_line_qty(best, 1)
+        warnings.append("Quantity resolver: discussion_central_unit qty set to 1")
+        fam = _family_lines(spec)
+
+    psu_lines = fam.get("power_supply_discussion", [])
+    if psu_lines:
+        best = _pick_best_line(psu_lines)
+        desired = 1 if seat_count > 20 else max(1, int(round(_line_qty(best) or 1)))
+        _set_line_qty(best, desired)
+        warnings.append(f"Quantity resolver: power_supply_discussion qty set to {desired}")
+        fam = _family_lines(spec)
+
+    dsp_lines = fam.get("discussion_dsp", [])
+    if dsp_lines:
+        best = _pick_best_line(dsp_lines)
+        _set_line_qty(best, 1)
+        warnings.append("Quantity resolver: discussion_dsp qty set to 1")
+        fam = _family_lines(spec)
+
+    if fam.get("soundbar"):
+        best = _pick_best_line(fam["soundbar"])
+        _set_line_qty(best, 1)
+        fam = _family_lines(spec)
+
+    for family in ("wall_speaker", "ceiling_speaker"):
+        if fam.get(family):
+            best = _pick_best_line(fam[family])
+            if _line_qty(best) < 2:
+                _set_line_qty(best, 2)
+            fam = _family_lines(spec)
+
+    items = [x for x in list(getattr(spec, "items", []) or []) if _line_qty(x) > 0]
+    setattr(spec, "items", items)
+
+    return warnings

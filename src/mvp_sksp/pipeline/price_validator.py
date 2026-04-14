@@ -3,76 +3,84 @@ from __future__ import annotations
 from typing import Any
 
 
-def _price_maps(pool: Any) -> tuple[dict[str, float], dict[str, float]]:
-    by_cid: dict[str, float] = {}
-    by_sku: dict[str, float] = {}
-
-    for it in list(getattr(pool, "items", []) or []):
-        cid = getattr(it, "candidate_id", None)
-        sku = str(getattr(it, "sku", "") or "").strip()
-        try:
-            price = float(getattr(it, "unit_price_rub", 0) or 0)
-        except Exception:
-            price = 0.0
-
-        if cid:
-            by_cid[str(cid)] = price
-        if sku:
-            by_sku[sku] = max(by_sku.get(sku, 0.0), price)
-
-    return by_cid, by_sku
+def _items(spec: Any) -> list[Any]:
+    return list(getattr(spec, "items", []) or [])
 
 
-def _line_price(line: Any) -> float:
-    for attr in ("unit_price_rub", "unit_price", "price_rub"):
-        try:
-            v = getattr(line, attr, None)
-            if v not in (None, "", 0, 0.0):
-                return float(v)
-        except Exception:
-            continue
-    return 0.0
+def _line_name(line: Any) -> str:
+    name = str(getattr(line, "name", "") or "").strip()
+    if name:
+        return name
+    desc = str(getattr(line, "description", "") or "").strip()
+    if desc:
+        return desc
+    sku = str(getattr(line, "sku", "") or "").strip()
+    if sku:
+        return sku
+    return "Позиция"
+
+
+def _to_float(v: Any) -> float | None:
+    if v in (None, "", "-", "—"):
+        return None
+    try:
+        f = float(v)
+    except Exception:
+        return None
+    if f == 0:
+        return None
+    return f
+
+
+def _line_price(line: Any) -> float | None:
+    money = getattr(line, "unit_price", None)
+    if money is not None:
+        amount = getattr(money, "amount", None)
+        f = _to_float(amount)
+        if f is not None:
+            return f
+
+    for key in ("unit_price_rub", "unit_price", "price", "price_rub"):
+        f = _to_float(getattr(line, key, None))
+        if f is not None:
+            return f
+
+    meta = getattr(line, "meta", None)
+    if isinstance(meta, dict):
+        for key in ("unit_price_rub", "unit_price", "price", "price_rub"):
+            f = _to_float(meta.get(key))
+            if f is not None:
+                return f
+
+    return None
 
 
 def validate_prices(spec: Any, source_pool: Any | None = None) -> list[str]:
+    _ = source_pool
+
     risks: list[str] = []
-    by_cid, by_sku = _price_maps(source_pool) if source_pool is not None else ({}, {})
 
-    for line in list(getattr(spec, "items", []) or []):
-        sku = str(getattr(line, "sku", "") or "").strip()
-        cid = getattr(line, "candidate_id", None)
+    for line in _items(spec):
+        if _line_price(line) is None:
+            risks.append(f"[price_missing] Цена уточняется: {_line_name(line)}")
 
-        price = _line_price(line)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for r in risks:
+        if r not in seen:
+            seen.add(r)
+            deduped.append(r)
 
-        if price <= 0 and cid is not None:
-            price = float(by_cid.get(str(cid), 0.0) or 0.0)
-            if price > 0:
-                try:
-                    setattr(line, "unit_price_rub", price)
-                except Exception:
-                    pass
-
-        if price <= 0 and sku:
-            price = float(by_sku.get(sku, 0.0) or 0.0)
-            if price > 0:
-                try:
-                    setattr(line, "unit_price_rub", price)
-                except Exception:
-                    pass
-
-        desc = " ".join([str(getattr(line, "name", "") or ""), str(getattr(line, "description", "") or "")]).casefold()
-        is_consumable = any(k in desc for k in ["расход", "комплект", "работ", "монтаж", "услуг"])
-        has_real_sku = sku not in ("", "-", "—")
-
-        if price <= 0 and has_real_sku and not is_consumable and not sku.startswith("ph::"):
-            risks.append(f"[price_missing] Цена уточняется: {sku}")
-
-    if risks and hasattr(spec, "risks"):
+    if hasattr(spec, "risks"):
         cur = list(getattr(spec, "risks", []) or [])
-        seen = set(cur)
-        for r in risks:
-            if r not in seen:
+        cur = [x for x in cur if not str(x).startswith("[price_missing]")]
+
+        seen2 = set(cur)
+        for r in deduped:
+            if r not in seen2:
                 cur.append(r)
+                seen2.add(r)
+
         setattr(spec, "risks", cur)
 
-    return risks
+    return deduped

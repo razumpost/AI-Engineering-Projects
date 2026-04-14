@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,8 +34,6 @@ class CoveragePlannerResult:
     dropped_candidate_ids: list[str] = field(default_factory=list)
     role_debug: list[RoleCoverageDebug] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-
-    # новые поля для family gate / uncovered report
     allowed_families: list[str] = field(default_factory=list)
     covered_families: list[str] = field(default_factory=list)
     uncovered_families: list[str] = field(default_factory=list)
@@ -83,13 +82,40 @@ def _text(item: Any) -> str:
         [
             str(getattr(item, "sku", "") or ""),
             str(getattr(item, "manufacturer", "") or ""),
+            str(getattr(item, "model", "") or ""),
             str(getattr(item, "name", "") or ""),
             str(getattr(item, "description", "") or ""),
         ]
     ).casefold()
 
 
-def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any) -> bool:
+def _extract_diag_inches(text: str) -> float | None:
+    patterns = [
+        r'(\d{2,3}(?:[.,]\d)?)\s*(?:"|”|inch|inches|дюйм)',
+        r'(\d{2,3}(?:[.,]\d)?)\s*(?:inch|дюйм)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            try:
+                return float(m.group(1).replace(",", "."))
+            except Exception:
+                return None
+    return None
+
+
+def _meeting_room_min_display_diag(req: ProjectRequirements) -> float:
+    seats = int(req.caps.seat_count or 0)
+    if seats >= 16:
+        return 65.0
+    if seats >= 10:
+        return 55.0
+    if seats >= 6:
+        return 43.0
+    return 32.0
+
+
+def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any, req: ProjectRequirements) -> bool:
     t = _text(item)
 
     if role_key in {"room_byod_ingest", "room_usb_bridge_or_byod_gateway"}:
@@ -114,6 +140,82 @@ def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any) -> bool:
             return False
         return True
 
+    if role_key == "room_display_main":
+        if cls.family not in {"display_panel", "interactive_panel", "display", "projector"}:
+            return False
+
+        # для meeting room проектор в общем случае уже исключён выше, но подстрахуемся
+        if req.room_type == "meeting_room" and cls.family == "projector":
+            return False
+
+        # выкидываем очевидно нерелевантные display-like варианты
+        bad_needles = [
+            "transparent",
+            "прозрачн",
+            "холодильник",
+            "outdoor",
+            "window facing",
+            "signage",
+            "smart display",
+            "all in one smart display",
+            "23.6",
+            "24 ",
+            "24\"",
+            "32-46",
+            "32“",
+            "46\"",
+        ]
+        if any(x in t for x in bad_needles):
+            return False
+
+        # для переговорки на много мест не брать слишком маленькие дисплеи
+        if req.room_type == "meeting_room":
+            min_diag = _meeting_room_min_display_diag(req)
+            diag = _extract_diag_inches(t)
+            if diag is not None and diag < min_diag:
+                return False
+
+        if not (
+            "display" in t
+            or "дисплей" in t
+            or "панель" in t
+            or "monitor" in t
+            or "экран" in t
+            or "interactive" in t
+        ):
+            return False
+
+        return True
+
+    if role_key in {"room_camera_main", "room_camera_secondary"}:
+        if cls.family not in {"ptz_camera", "fixed_conference_camera", "videobar"}:
+            return False
+        if "smart display" in t or "all in one smart display" in t:
+            return False
+        if not (
+            "camera" in t
+            or "камера" in t
+            or "ptz" in t
+            or "videobar" in t
+        ):
+            return False
+        return True
+
+    if role_key == "room_audio_capture":
+        if cls.family in {"mounting_kit", "cabling_av"}:
+            return False
+        if req.room_type == "meeting_room" and cls.family in {"delegate_unit", "chairman_unit", "discussion_central_unit"}:
+            return False
+        if not (
+            "microphone" in t
+            or "микрофон" in t
+            or "beamforming" in t
+            or "gooseneck" in t
+            or cls.family in {"tabletop_mic", "ceiling_mic_array", "speakerphone", "videobar"}
+        ):
+            return False
+        return True
+
     return True
 
 
@@ -125,6 +227,7 @@ def _role_score(
     req: ProjectRequirements,
 ) -> float:
     score = float(getattr(cls, "family_confidence", 0.0) or 0.0) * 10.0 + _candidate_quality(item)
+    t = _text(item)
 
     if cls.family in (role.preferred_families or []):
         score += 4.0
@@ -142,6 +245,27 @@ def _role_score(
     if topology.topology_key == "meeting_room_delegate_dsp" and cls.family == "videobar":
         score -= 10_000.0
 
+    if role.role_key == "room_display_main":
+        if "transparent" in t or "прозрачн" in t or "холодильник" in t or "outdoor" in t:
+            score -= 500.0
+        diag = _extract_diag_inches(t)
+        if diag is not None:
+            min_diag = _meeting_room_min_display_diag(req)
+            if diag >= min_diag:
+                score += 8.0
+            else:
+                score -= 50.0
+
+    if role.role_key in {"room_camera_main", "room_camera_secondary"}:
+        if "ptz" in t:
+            score += 6.0
+        if "videobar" in t:
+            score += 2.0
+
+    if role.role_key == "room_audio_capture":
+        if "ceiling microphone" in t or "beamforming" in t or "table microphone" in t:
+            score += 5.0
+
     return score
 
 
@@ -149,7 +273,7 @@ def _topn_for_role(role_key: str) -> int:
     if role_key in {"room_display_main", "room_camera_main", "room_camera_secondary", "room_signal_switching"}:
         return 1
     if role_key == "room_cabling_and_accessories":
-        return 3
+        return 2
     return 1
 
 
@@ -174,18 +298,14 @@ def _allowed_families_from_roles(topology: TopologyDecision, roles: list[Expande
     for fams in (topology.preferred_families or {}).values():
         vals.extend(fams or [])
 
-    # support / accessory families we still allow when topology is discussion / meeting-room
+    # Оставляем только нейтральные support family.
     vals.extend(
         [
             "cabling_av",
             "mounting_kit",
             "power_accessories",
-            "power_supply_discussion",
             "managed_switch",
             "poe_switch",
-            "conference_controller",
-            "discussion_central_unit",
-            "discussion_dsp",
         ]
     )
 
@@ -198,6 +318,15 @@ def _required_family_targets(role: ExpandedRole) -> list[str]:
     if role.allowed_families:
         return list(role.allowed_families[:2])
     return []
+
+
+def _role_is_core_required(role_key: str) -> bool:
+    return role_key in {
+        "room_display_main",
+        "room_camera_main",
+        "room_audio_capture",
+        "room_audio_playback",
+    }
 
 
 def build_filtered_pool_for_coverage(
@@ -288,7 +417,7 @@ def build_filtered_pool_for_coverage(
                 continue
             if c.family not in allowed:
                 continue
-            if not _role_predicate(role.role_key, c, it):
+            if not _role_predicate(role.role_key, c, it, requirements):
                 continue
             scored.append((_role_score(it, c, role, topology, requirements), cid))
 
@@ -306,6 +435,11 @@ def build_filtered_pool_for_coverage(
 
         role_debug.append(dbg)
 
+    core_required_uncovered = any(
+        dbg.required and _role_is_core_required(dbg.role_key) and not dbg.selected_candidate_ids
+        for dbg in role_debug
+    )
+
     support_families = {
         "conference_controller",
         "dsp",
@@ -321,12 +455,14 @@ def build_filtered_pool_for_coverage(
         "power_accessories",
     }
 
-    for cid in eligible:
-        if cid in kept:
-            continue
-        c = cls_by_id.get(cid)
-        if c and c.family in support_families:
-            kept.add(cid)
+    # support-добор разрешаем только если ядро уже хоть как-то закрыто
+    if not core_required_uncovered:
+        for cid in eligible:
+            if cid in kept:
+                continue
+            c = cls_by_id.get(cid)
+            if c and c.family in support_families:
+                kept.add(cid)
 
     kept_in_order = [getattr(i, "candidate_id") for i in items if getattr(i, "candidate_id") in kept]
     kept_items = [item_by_id[cid] for cid in kept_in_order]

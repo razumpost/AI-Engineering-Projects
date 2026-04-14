@@ -1,82 +1,274 @@
-# src/mvp_sksp/adapters/price_classifier.py
 from __future__ import annotations
+
+import re
+
+
+def _norm(text: str) -> str:
+    text = (text or "").lower().replace("\u00a0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def classify_price_item(name: str, description: str | None = None) -> str:
-    text = ((name or "") + " " + (description or "")).lower()
+    text = _norm(f"{name or ''} {description or ''}")
 
-    # DISPLAY / PANEL — ставим раньше camera, чтобы "smart display ... camera" не уезжал в camera
-    if any(x in text for x in [
-        "display", "дисплей", "панель", "экран", "monitor",
-        "smart display", "interactive display", "interactive panel",
-        "lcd", "led", "videowall",
-        "nextouch", "nextpanel", "eliteboard", "edflat", "mobiscreen",
-        "professional display", "signage display",
-    ]):
-        return "display"
+    if not text:
+        return "other"
 
-    # CAMERA
+    # ------------------------------------------------------------
+    # 1) DISCUSSION / CONFERENCE SYSTEM
+    # ------------------------------------------------------------
     if any(x in text for x in [
-        "camera", "камера", "ptz", "hd20", "zoom",
-        "videocam", "webcam", "conference camera", "usb camera",
-        "videobar camera",
-    ]):
-        return "camera"
-
-    # MICROPHONE
-    if any(x in text for x in [
-        "microphone", "микрофон", "mic",
-        "shure", "mxa", "beamforming",
-        "delegate unit", "chairman unit",
-        "пульт делегата", "пульт председателя",
-        "conference microphone", "ceiling microphone", "table microphone",
+        "пульт председателя",
+        "chairman unit",
+        "chairman microphone",
+        "председательский пульт",
     ]):
         return "microphone"
 
-    # AUDIO
     if any(x in text for x in [
-        "speaker", "акуст", "soundbar",
-        "audio", "усилитель", "amplifier",
-        "громкоговор", "conference speaker", "speakerphone",
+        "пульт делегата",
+        "delegate unit",
+        "delegate microphone",
+        "настольный пульт",
+        "микрофонный пульт",
+        "пульт dis",
+        "настольный dis",
     ]):
-        return "audio"
+        return "microphone"
 
-    # CONTROLLER / DSP / CORE
     if any(x in text for x in [
-        "controller", "процессор", "dsp",
-        "videomix", "atem", "matrix", "switcher",
-        "central unit", "центральный блок",
-        "discussion system", "conference system core",
+        "central unit",
+        "discussion central unit",
+        "conference central unit",
+        "control unit",
+        "main unit",
+        "блок управления",
+        "центральный блок",
+        "центральный контроллер",
+        "discussion system",
+        "conference system host",
+        "ps 6000",
+        "power supply dis",
+        "блок питания dis",
+        "delegate system power supply",
+        "discussion power supply",
+        "extension unit",
+        "conference controller",
     ]):
         return "controller"
 
-    # OPS / SLOT PC
     if any(x in text for x in [
-        "ops", "slot pc", "ops-pc", "ops pc",
-        "встраиваемый компьютер", "ops модуль",
+        "audio dsp",
+        "conference dsp",
+        "audio processor",
+        "digital signal processor",
+        "аудиопроцессор",
+        "процессор обработки аудио",
+        "dsp processor",
+        "dsp unit",
+    ]):
+        return "controller"
+
+    if any(x in text for x in [
+        "bosch",
+        "dis",
+        "taiden",
+        "relacart",
+        "televic",
+        "bxb",
+        "itc conference",
+        "gonsin",
+    ]) and any(x in text for x in [
+        "delegate",
+        "chairman",
+        "conference",
+        "discussion",
+        "пульт",
+        "микрофонный",
+        "central unit",
+        "control unit",
+    ]):
+        if any(x in text for x in ["delegate", "chairman", "пульт", "микрофонный"]):
+            return "microphone"
+        return "controller"
+
+    # ------------------------------------------------------------
+    # 2) AUDIO
+    # ------------------------------------------------------------
+    if any(x in text for x in [
+        "speakerphone",
+        "спикерфон",
+        "soundbar",
+        "саундбар",
+        "speaker bar",
+        "conference speaker",
+        "speaker",
+        "акуст",
+        "громкоговор",
+        "усилитель",
+        "amplifier",
+        "power amplifier",
+    ]):
+        return "audio"
+
+    if any(x in text for x in [
+        "microphone",
+        "микрофон",
+        "beamforming",
+        "ceiling microphone",
+        "table microphone",
+        "gooseneck",
+        "гусиная шея",
+        "настольный микрофон",
+        "потолочный микрофон",
+        "clockaudio",
+        "shure",
+        "mxa",
+    ]):
+        return "microphone"
+
+    # ------------------------------------------------------------
+    # 3) DISPLAY / PROJECTOR FIRST
+    # ВАЖНО: smart display с integrated camera должен остаться display
+    # ------------------------------------------------------------
+    if any(x in text for x in [
+        "projector",
+        "проектор",
+        "laser phosphor",
+        "throw ratio",
+        "ansi lumens",
+        "keystone",
+        "ust ",
+        "ust(",
+    ]):
+        return "display"
+
+    if any(x in text for x in [
+        "smart display",
+        "interactive panel",
+        "interactive display",
+        "интерактивная панель",
+        "display",
+        "дисплей",
+        "панель",
+        "экран",
+        "monitor",
+        "professional display",
+        "signage display",
+        "lcd",
+        "videowall",
+        "nextouch",
+        "nextpanel",
+        "eliteboard",
+        "edflat",
+        "mobiscreen",
+        "samsung oh",
+        "oh75f",
+        "oh85f",
+        "all in one smart display",
+    ]):
+        return "display"
+
+    # ------------------------------------------------------------
+    # 4) CAMERA
+    # ------------------------------------------------------------
+    if any(x in text for x in [
+        "ptz",
+        "conference camera",
+        "usb camera",
+        "webcam",
+        "videobar camera",
+        "zoom camera",
+        "камера",
+        "camera",
+    ]):
+        return "camera"
+
+    # ------------------------------------------------------------
+    # 5) OPS / PLAYERS / COMPUTE
+    # ------------------------------------------------------------
+    if any(x in text for x in [
+        "media player",
+        "player",
+        "ops",
+        "slot pc",
+        "ops-pc",
+        "ops pc",
+        "встраиваемый компьютер",
+        "ops модуль",
+        "intel i5",
+        "win 10 pro",
+        "win 8 pro",
+        "nmp-",
+        "nmp ",
+        "hmp",
+        "diva",
     ]):
         return "ops"
 
-    # MOUNT
+    # ------------------------------------------------------------
+    # 6) SOFTWARE / SIGNAGE CMS
+    # ------------------------------------------------------------
     if any(x in text for x in [
-        "mount", "bracket", "стойка", "кронштейн", "trolley", "тележка",
-        "wall mount", "ceiling mount", "mobile stand", "мобильная стойка",
+        "license",
+        "лиценз",
+        "software",
+        "smart player",
+        "player license",
+        "spinetix",
+        "elementi",
+        "cms",
+        "content management",
+        "signage software",
+        "digital signage",
+        "html5 widgets",
+        "w3c widgets",
+        "smil",
+    ]):
+        return "software"
+
+    # ------------------------------------------------------------
+    # 7) MOUNTS
+    # ------------------------------------------------------------
+    if any(x in text for x in [
+        "mount",
+        "bracket",
+        "стойка",
+        "кронштейн",
+        "trolley",
+        "тележка",
+        "wall mount",
+        "ceiling mount",
+        "mobile stand",
+        "мобильная стойка",
+        "back-to-back",
+        "pull-out wall mount",
+        "ceiling mount kit",
     ]):
         return "mount"
 
-    # CABLE
+    # ------------------------------------------------------------
+    # 8) CABLES LAST
+    # ------------------------------------------------------------
     if any(x in text for x in [
-        "кабель", "cable", "hdmi", "usb", "displayport", "vga",
-        "xlr", "cat6", "cat.6", "витая пара", "hdbaset",
+        "кабель",
+        "cable",
+        "displayport",
+        "dvi-d",
+        "hdmi cable",
+        "hdmi-hdmi",
+        "usb cable",
+        "vga cable",
+        "xlr",
+        "cat6",
+        "cat.6",
+        "витая пара",
+        "patch cord",
+        "патч-корд",
+        "hdbaset cable",
+        "ethernet cable",
     ]):
         return "cable"
-
-    # SOFTWARE / LICENSE
-    if any(x in text for x in [
-        "license", "лиценз", "software", "smart player",
-        "player license", "spinetix", "elementi", "cms",
-        "content management", "signage software", "по ",
-    ]):
-        return "software"
 
     return "other"

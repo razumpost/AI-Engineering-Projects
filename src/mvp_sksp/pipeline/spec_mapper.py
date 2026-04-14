@@ -85,6 +85,25 @@ def _line_candidate_id(line: Any) -> str | None:
     return None
 
 
+def _line_item_key(line: Any) -> str | None:
+    item_key = getattr(line, "item_key", None)
+    if item_key:
+        return str(item_key)
+
+    meta = getattr(line, "meta", None)
+    if isinstance(meta, dict) and meta.get("item_key"):
+        return str(meta.get("item_key"))
+
+    return None
+
+
+def _line_placeholder_kind(line: Any) -> str | None:
+    meta = getattr(line, "meta", None)
+    if isinstance(meta, dict) and meta.get("placeholder_kind"):
+        return str(meta.get("placeholder_kind"))
+    return None
+
+
 def _line_qty_value(line: Any) -> Decimal:
     q = getattr(line, "qty", None)
     if isinstance(q, Decimal):
@@ -113,17 +132,42 @@ def _line_family(line: Any, cls_by_id: dict[str, Any]) -> str | None:
     return c.family
 
 
+def _merge_key(line: Any) -> tuple[str, ...]:
+    """
+    ВАЖНО:
+    placeholder-строки нельзя схлопывать по manufacturer+sku,
+    потому что у всех них обычно:
+      manufacturer="Уточнить", sku="—"
+    """
+
+    item_key = _line_item_key(line)
+    if item_key:
+        return ("item_key", item_key)
+
+    placeholder_kind = _line_placeholder_kind(line)
+    if placeholder_kind:
+        return ("placeholder", placeholder_kind)
+
+    cid = _line_candidate_id(line)
+    if cid:
+        return ("cid", cid)
+
+    manufacturer = str(getattr(line, "manufacturer", "") or "")
+    sku = str(getattr(line, "sku", "") or "")
+    model = str(getattr(line, "model", "") or "")
+    name = str(getattr(line, "name", "") or "")
+    description = str(getattr(line, "description", "") or "")
+
+    return ("fallback", manufacturer, sku, model, name, description)
+
+
 def merge_duplicate_candidate_lines(spec: Any) -> None:
     items = list(getattr(spec, "items", []) or [])
     out: list[Any] = []
 
-    by_key: dict[tuple[str, str, str], Any] = {}
+    by_key: dict[tuple[str, ...], Any] = {}
     for line in items:
-        cid = _line_candidate_id(line)
-        if cid:
-            key = ("cid", cid, "")
-        else:
-            key = ("sku", str(getattr(line, "manufacturer", "") or ""), str(getattr(line, "sku", "") or ""))
+        key = _merge_key(line)
 
         if key not in by_key:
             by_key[key] = line
