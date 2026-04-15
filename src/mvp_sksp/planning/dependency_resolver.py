@@ -115,9 +115,6 @@ def _ensure_placeholder(
     qty: int,
     warnings: list[str],
 ) -> None:
-    if fam_present.get(family):
-        return
-
     if _find_existing_placeholder(spec, kind) is not None:
         return
 
@@ -134,10 +131,13 @@ def _ensure_placeholder(
     warnings.append(f"missing_dependency: {family}")
 
 
-def _is_discussion_mode(spec: Any, topology: TopologyDecision) -> bool:
+def _is_discussion_mode(spec: Any, topology: TopologyDecision, requirements: ProjectRequirements) -> bool:
     fam_present = _present_families(spec)
 
     if topology.topology_key == "meeting_room_discussion_only":
+        return True
+
+    if bool(requirements.flags.control) and int(requirements.caps.seat_count or 0) >= 8:
         return True
 
     return any(
@@ -152,6 +152,89 @@ def _is_discussion_mode(spec: Any, topology: TopologyDecision) -> bool:
     )
 
 
+def _has_any_family(fam_present: dict[str, int], families: list[str]) -> bool:
+    return any(fam_present.get(f) for f in families)
+
+
+def _ensure_meeting_room_core_placeholders(
+    *,
+    spec: Any,
+    fam_present: dict[str, int],
+    requirements: ProjectRequirements,
+    warnings: list[str],
+) -> None:
+    display_count = int(requirements.caps.display_count or 0)
+    camera_count = int(requirements.caps.camera_count or 0)
+
+    has_display = _has_any_family(fam_present, ["display_panel", "interactive_panel"])
+    has_camera = _has_any_family(fam_present, ["ptz_camera", "fixed_conference_camera", "videobar"])
+    has_audio_capture = _has_any_family(fam_present, ["tabletop_mic", "ceiling_mic_array", "speakerphone", "videobar"])
+    has_switching = _has_any_family(
+        fam_present,
+        ["presentation_switcher", "matrix_switcher", "av_over_ip_tx", "av_over_ip_rx", "simple_io_hub", "byod_usb_hdmi_gateway", "usb_c_dock"],
+    )
+
+    if display_count > 0 and not has_display:
+        _ensure_placeholder(
+            spec=spec,
+            fam_present=fam_present,
+            family="display_panel",
+            kind="room_display_main",
+            title="Профессиональный дисплей для переговорной, подобрать",
+            category="display",
+            qty=max(1, display_count),
+            warnings=warnings,
+        )
+
+    if camera_count > 0 and not has_camera:
+        _ensure_placeholder(
+            spec=spec,
+            fam_present=fam_present,
+            family="ptz_camera",
+            kind="room_camera_main",
+            title="Камера ВКС / PTZ для переговорной, подобрать",
+            category="conference",
+            qty=1,
+            warnings=warnings,
+        )
+
+        if camera_count > 1:
+            _ensure_placeholder(
+                spec=spec,
+                fam_present=fam_present,
+                family="fixed_conference_camera",
+                kind="room_camera_secondary",
+                title="Дополнительная камера ВКС для переговорной, подобрать",
+                category="conference",
+                qty=max(1, camera_count - 1),
+                warnings=warnings,
+            )
+
+    if not has_audio_capture:
+        _ensure_placeholder(
+            spec=spec,
+            fam_present=fam_present,
+            family="tabletop_mic",
+            kind="room_audio_capture",
+            title="Микрофонная подсистема переговорной, подобрать",
+            category="conference",
+            qty=1,
+            warnings=warnings,
+        )
+
+    if not has_switching and (requirements.flags.presentation or requirements.flags.vks or display_count > 0):
+        _ensure_placeholder(
+            spec=spec,
+            fam_present=fam_present,
+            family="presentation_switcher",
+            kind="room_signal_switching",
+            title="Коммутатор / BYOD-шлюз / USB bridge для переговорной, подобрать",
+            category="signal_transport",
+            qty=1,
+            warnings=warnings,
+        )
+
+
 def resolve_dependencies(
     spec: Any,
     source_pool: Any,
@@ -164,9 +247,10 @@ def resolve_dependencies(
     fam_present = _present_families(spec)
     seat_count = int(requirements.caps.seat_count or 0)
 
-    discussion_mode = _is_discussion_mode(spec, topology)
+    discussion_mode = _is_discussion_mode(spec, topology, requirements)
 
     if discussion_mode:
+        # ЖЕСТКО: для discussion baseline эти линии должны быть всегда, если нет placeholder_kind
         _ensure_placeholder(
             spec=spec,
             fam_present=fam_present,
@@ -212,7 +296,15 @@ def resolve_dependencies(
             warnings=warnings,
         )
 
-    if requirements.room_type == "meeting_room":
+    # ordinary meeting-room placeholders не должны добавляться в discussion-mode
+    if requirements.room_type == "meeting_room" and not discussion_mode:
+        _ensure_meeting_room_core_placeholders(
+            spec=spec,
+            fam_present=fam_present,
+            requirements=requirements,
+            warnings=warnings,
+        )
+
         has_playback = bool(
             fam_present.get("soundbar")
             or fam_present.get("wall_speaker")

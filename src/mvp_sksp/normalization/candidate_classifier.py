@@ -36,6 +36,8 @@ def classify_candidates(candidates: Iterable[Any]) -> List[ClassifiedCandidate]:
             getattr(c, "id", None),
         ) or "line_like"
 
+        room_fit = _infer_room_fit(family, text)
+
         out.append(
             ClassifiedCandidate(
                 candidate_id=candidate_id,
@@ -43,7 +45,7 @@ def classify_candidates(candidates: Iterable[Any]) -> List[ClassifiedCandidate]:
                 family_confidence=conf,
                 capabilities=[],
                 interfaces=[],
-                room_fit=[],
+                room_fit=room_fit,
                 notes=notes,
             )
         )
@@ -68,10 +70,58 @@ def _norm_text(s: str) -> str:
 
 
 def _contains_any(text: str, tokens: list[str]) -> bool:
-    for t in tokens:
-        if t and t in text:
-            return True
-    return False
+    return any(t and t in text for t in tokens)
+
+
+def _infer_room_fit(family: str | None, text: str) -> list[str]:
+    if family in {
+        "delegate_unit",
+        "chairman_unit",
+        "discussion_central_unit",
+        "discussion_dsp",
+        "power_supply_discussion",
+    }:
+        return ["meeting_room", "hall"]
+
+    if family in {
+        "display_panel",
+        "interactive_panel",
+        "ptz_camera",
+        "fixed_conference_camera",
+        "videobar",
+        "tabletop_mic",
+        "ceiling_mic_array",
+        "speakerphone",
+        "soundbar",
+        "wall_speaker",
+        "ceiling_speaker",
+        "presentation_switcher",
+        "matrix_switcher",
+        "simple_io_hub",
+        "cabling_av",
+        "mounting_kit",
+        "byod_usb_hdmi_gateway",
+        "byod_wireless_presentation",
+        "usb_c_dock",
+        "dsp",
+        "usb_dsp_bridge",
+    }:
+        return ["meeting_room", "hall"]
+
+    if family in {"videowall_panel", "videowall_mount", "videowall_controller"}:
+        return ["videowall", "meeting_room"]
+
+    if family in {"led_cabinet"}:
+        return ["led_screen"]
+
+    if "переговор" in text or "conference room" in text or "meeting room" in text:
+        return ["meeting_room"]
+    if "видеостен" in text or "videowall" in text:
+        return ["videowall"]
+    if "актовый зал" in text or "конференц-зал" in text or "auditorium" in text:
+        return ["hall"]
+
+    return []
 
 
 def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
@@ -81,7 +131,73 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return None, 0.0, ["unclassified"]
 
     # ------------------------------------------------------------
-    # 1) Сначала жестко отсеиваем кабели / displayport, чтобы не путать с DSP
+    # 0) OPS / players / software ДО cable/display
+    # ------------------------------------------------------------
+    ops_tokens = [
+        "ops",
+        "slot pc",
+        "ops pc",
+        "ops-pc",
+        "ops модуль",
+        "slot-in pc",
+        "embedded pc",
+        "intel i3",
+        "intel i5",
+        "intel i7",
+        "celeron",
+        "ryzen",
+        "mini pc",
+        "nmp-",
+        "nmp ",
+        "hmp",
+        "player box",
+        "media player",
+    ]
+    if _contains_any(text, ops_tokens):
+        return "simple_io_hub", 0.86, ["rule_match:ops_or_compute"]
+
+    software_tokens = [
+        "license",
+        "лиценз",
+        "software",
+        "cms",
+        "spinetix",
+        "elementi",
+        "digital signage",
+        "signage software",
+        "html5 widgets",
+        "smil",
+    ]
+    if _contains_any(text, software_tokens):
+        return "smart_player", 0.84, ["rule_match:software_or_signage"]
+
+    # ------------------------------------------------------------
+    # 1) Mount / trolley ДО display
+    # ------------------------------------------------------------
+    mount_tokens = [
+        "mount kit",
+        "ceiling mount kit",
+        "wall mount",
+        "ceiling mount",
+        "pull-out wall mount",
+        "back-to-back",
+        "trolley",
+        "тележка",
+        "стойка",
+        "кронштейн",
+        "bracket",
+        "mount",
+        "rotate",
+        "fixed",
+        "micro adjustable",
+    ]
+    if _contains_any(text, mount_tokens):
+        if _contains_any(text, ["videowall", "видеостена"]):
+            return "videowall_mount", 0.94, ["rule_match:videowall_mount"]
+        return "mounting_kit", 0.9, ["rule_match:mounting_kit"]
+
+    # ------------------------------------------------------------
+    # 2) Кабели после ops/mount, чтобы не путать с DSP / OPS
     # ------------------------------------------------------------
     cable_tokens = [
         "displayport",
@@ -108,7 +224,7 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return "cabling_av", 0.95, ["rule_match:cabling_av"]
 
     # ------------------------------------------------------------
-    # 2) Дискуссионные системы / пульты
+    # 3) Дискуссионные системы / пульты
     # ------------------------------------------------------------
     chairman_tokens = [
         "chairman unit",
@@ -134,7 +250,6 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
     if _contains_any(text, delegate_tokens):
         return "delegate_unit", 0.94, ["rule_match:delegate_unit"]
 
-    # vendor+context weak/strong rules for conference discussion systems
     conference_brands = [
         "bosch",
         "dis",
@@ -201,7 +316,9 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         "dsp unit",
     ]
     if _contains_any(text, dsp_tokens):
-        return "discussion_dsp", 0.94, ["rule_match:discussion_dsp"]
+        if _contains_any(text, conference_brands) or _contains_any(text, ["discussion", "conference", "конференц"]):
+            return "discussion_dsp", 0.94, ["rule_match:discussion_dsp"]
+        return "dsp", 0.9, ["rule_match:dsp"]
 
     power_tokens = [
         "power supply",
@@ -220,13 +337,16 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return "power_supply_discussion", 0.9, ["rule_match:power_supply_discussion"]
 
     # ------------------------------------------------------------
-    # 3) Микрофоны / аудио
+    # 4) Микрофоны / аудио
     # ------------------------------------------------------------
     if _contains_any(text, ["ceiling microphone", "beamforming", "ceiling mic", "потолочный микрофон"]):
         return "ceiling_mic_array", 0.9, ["rule_match:ceiling_mic_array"]
 
     if _contains_any(text, ["tabletop mic", "gooseneck", "гусиная шея", "настольный микрофон"]):
         return "tabletop_mic", 0.86, ["rule_match:tabletop_mic"]
+
+    if _contains_any(text, ["clockaudio", "микрофон", "microphone", "conference mic", "conference microphone"]):
+        return "tabletop_mic", 0.74, ["weak_match:generic_microphone"]
 
     if _contains_any(text, ["speakerphone", "спикерфон"]):
         return "speakerphone", 0.92, ["rule_match:speakerphone"]
@@ -244,7 +364,7 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return "amplifier", 0.88, ["rule_match:amplifier"]
 
     # ------------------------------------------------------------
-    # 4) Камеры
+    # 5) Камеры
     # ------------------------------------------------------------
     if _contains_any(text, ["videobar", "video bar"]):
         return "videobar", 0.92, ["rule_match:videobar"]
@@ -256,7 +376,7 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return "fixed_conference_camera", 0.82, ["rule_match:fixed_conference_camera"]
 
     # ------------------------------------------------------------
-    # 5) Дисплеи / экраны / проекторы
+    # 6) Дисплеи / экраны / проекторы
     # ------------------------------------------------------------
     if _contains_any(text, ["interactive panel", "interactive display", "интерактивная панель"]):
         return "interactive_panel", 0.9, ["rule_match:interactive_panel"]
@@ -268,20 +388,18 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
         return "projection_screen", 0.88, ["rule_match:projection_screen"]
 
     if _contains_any(text, ["videowall", "видеостена"]):
-        if _contains_any(text, ["mount", "кронштейн", "рам", "каркас"]):
-            return "videowall_mount", 0.92, ["rule_match:videowall_mount"]
         if _contains_any(text, ["controller", "processor", "videoprocessor", "контроллер", "процессор"]):
             return "videowall_controller", 0.92, ["rule_match:videowall_controller"]
         return "videowall_panel", 0.9, ["rule_match:videowall_panel"]
 
-    if _contains_any(text, ["led cabinet", "светодиодный экран", "led экран", "led cabinet", "novastar"]):
+    if _contains_any(text, ["led cabinet", "светодиодный экран", "led экран", "novastar"]):
         return "led_cabinet", 0.9, ["rule_match:led_cabinet"]
 
-    if _contains_any(text, ["display", "panel", "lcd", "led tv", "professional display", "дисплей", "панель"]):
+    if _contains_any(text, ["display", "panel", "lcd", "led tv", "professional display", "дисплей", "панель", "smart display"]):
         return "display_panel", 0.82, ["rule_match:display_panel"]
 
     # ------------------------------------------------------------
-    # 6) Коммутация / BYOD / управление
+    # 7) Коммутация / BYOD / управление
     # ------------------------------------------------------------
     if _contains_any(text, ["wireless presentation", "instashow", "barco clickshare", "беспроводная презентация"]):
         return "byod_wireless_presentation", 0.88, ["rule_match:byod_wireless_presentation"]
@@ -289,40 +407,25 @@ def _infer_family(text: str) -> tuple[str | None, float, list[str]]:
     if _contains_any(text, ["usb hdmi gateway", "byod gateway", "usb bridge", "usb-dsp bridge"]):
         return "byod_usb_hdmi_gateway", 0.86, ["rule_match:byod_usb_hdmi_gateway"]
 
-    if _contains_any(text, ["usb-c dock", "type-c dock", "док-станция usb-c"]):
-        return "usb_c_dock", 0.86, ["rule_match:usb_c_dock"]
+    if _contains_any(text, ["usb-c dock", "type-c dock", "usb-c hub", "dock station"]):
+        return "usb_c_dock", 0.84, ["rule_match:usb_c_dock"]
 
-    if _contains_any(text, ["matrix switcher", "матричный коммутатор"]):
+    if _contains_any(text, ["matrix switcher", "matrix", "матричный коммутатор"]):
         return "matrix_switcher", 0.86, ["rule_match:matrix_switcher"]
 
-    if _contains_any(text, ["presentation switcher", "презентационный коммутатор"]):
-        return "presentation_switcher", 0.86, ["rule_match:presentation_switcher"]
-
-    if _contains_any(text, ["managed switch", "коммутатор управляемый"]):
-        return "managed_switch", 0.84, ["rule_match:managed_switch"]
-
-    if _contains_any(text, ["poe switch", "poe коммутатор"]):
-        return "poe_switch", 0.84, ["rule_match:poe_switch"]
-
-    if _contains_any(text, ["touch panel", "сенсорная панель управления"]):
-        return "touch_panel", 0.84, ["rule_match:touch_panel"]
+    if _contains_any(text, ["presentation switcher", "switcher", "коммутатор презентационный"]):
+        return "presentation_switcher", 0.84, ["rule_match:presentation_switcher"]
 
     if _contains_any(text, ["control processor", "процессор управления"]):
-        return "control_processor", 0.84, ["rule_match:control_processor"]
+        return "control_processor", 0.9, ["rule_match:control_processor"]
 
-    # ------------------------------------------------------------
-    # 7) Монтаж / питание / аксессуары
-    # ------------------------------------------------------------
-    if _contains_any(text, ["mount", "bracket", "кронштейн", "стойка", "крепление", "каркас"]):
-        return "mounting_kit", 0.8, ["rule_match:mounting_kit"]
+    if _contains_any(text, ["touch panel", "сенсорная панель", "панель управления"]):
+        return "touch_panel", 0.88, ["rule_match:touch_panel"]
 
-    if _contains_any(text, ["power supply", "адаптер питания", "блок питания"]) and "conference" not in text and "discussion" not in text:
-        return "power_accessories", 0.72, ["rule_match:power_accessories"]
+    if _contains_any(text, ["keypad", "кнопочная панель"]):
+        return "keypad_controller", 0.82, ["rule_match:keypad_controller"]
 
-    if _contains_any(text, ["adapter", "коннектор", "разъем", "accessory", "аксессуар"]):
-        return "adapters_kit", 0.6, ["rule_match:adapters_kit"]
+    if _contains_any(text, ["switch", "poe switch", "коммутатор poe"]):
+        return "poe_switch", 0.8, ["rule_match:poe_switch"]
 
     return None, 0.0, ["unclassified"]
-
-
-__all__ = ["classify_candidate", "classify_candidates"]

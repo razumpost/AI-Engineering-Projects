@@ -72,6 +72,26 @@ def _prefer_scopes_from_query(query: str, scopes: set[str]) -> list[str]:
     return prefer
 
 
+def _is_delegate_discussion_candidate(ci: CandidateItem) -> bool:
+    blob = f"{ci.name or ''} {ci.description or ''} {ci.model or ''} {ci.sku or ''}".casefold()
+    return any(
+        x in blob
+        for x in [
+            "delegate",
+            "chairman",
+            "пульт делегата",
+            "пульт председателя",
+            "дискуссион",
+            "discussion",
+            "conference unit",
+            "bosch dis",
+            "taiden",
+            "relacart",
+            "televic",
+        ]
+    )
+
+
 def _qty_hint(ci: CandidateItem, *, seat_count: Optional[int], cam_count: Optional[int]) -> Decimal:
     scope = _candidate_scope(ci)
     name = f"{ci.name} {ci.description}".casefold()
@@ -79,8 +99,12 @@ def _qty_hint(ci: CandidateItem, *, seat_count: Optional[int], cam_count: Option
     if scope == "camera" and cam_count and ("камера" in name or "camera" in name or "ptz" in name):
         return Decimal(1)
 
+    # Для обычной переговорки не размножаем микрофон по числу мест.
+    # seat_count имеет смысл только для discussion/delegate-пультов.
     if scope == "microphone" and seat_count and _RE_MIC.search(name):
-        return Decimal(seat_count)
+        if _is_delegate_discussion_candidate(ci):
+            return Decimal(seat_count)
+        return Decimal(1)
 
     return Decimal(1)
 
@@ -99,12 +123,6 @@ def build_autofill_ops(
     target_lines: int = 32,
     hard_cap: int = 70,
 ) -> list[PatchOperation]:
-    """
-    Осторожный autofill:
-    - для ordinary meeting room сначала добирает только core scopes
-    - не тащит software/ops/cable/mount как filler по умолчанию
-    - mount/cable допускает только после появления core lines
-    """
     if len(spec.items) >= min_lines:
         return []
 
@@ -133,7 +151,6 @@ def build_autofill_ops(
         pref = 3 if scope in prefer_scopes else 0
         ev = 1 if ci.evidence_task_ids else 0
 
-        # core scopes всегда выше support
         scope_rank = 0
         if scope in core_scopes:
             scope_rank = 3
@@ -169,7 +186,6 @@ def build_autofill_ops(
         if scope in bad_scopes:
             continue
 
-        # пока не закрыли core scopes — support не добавляем
         core_covered_total = current_core_in_spec + sum(v for k, v in per_scope_count.items() if k in core_scopes)
         if scope in support_scopes and core_covered_total < max(2, len([x for x in prefer_scopes if x in core_scopes])):
             continue
@@ -181,7 +197,6 @@ def build_autofill_ops(
 
         qty = _qty_hint(ci, seat_count=seat_count, cam_count=cam_count)
 
-        # для камер не множим основной camera line в autofill
         if scope == "camera" and cam_count and qty > 1:
             qty = Decimal(1)
 
@@ -201,7 +216,6 @@ def build_autofill_ops(
         if scope in per_scope_count:
             per_scope_count[scope] = per_scope_count.get(scope, 0) + 1
 
-        # ordinary meeting room не надо раздувать filler-линиями
         if prefer_scopes and all(per_scope_count.get(s, 0) >= per_scope_min for s in prefer_scopes):
             if len(ops) >= max(4, len(prefer_scopes) + 1):
                 break

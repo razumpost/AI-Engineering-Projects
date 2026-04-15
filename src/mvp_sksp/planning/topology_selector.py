@@ -59,8 +59,6 @@ def _looks_like_discussion_only(requirements: ProjectRequirements) -> bool:
     if display_count:
         return False
 
-    # discussion-only допускаем только при ЯВНОМ control-сценарии,
-    # а не просто от большого количества мест
     return bool(flags.control)
 
 
@@ -105,10 +103,14 @@ def _normalize_meeting_room_topology(
     if _looks_like_discussion_only(requirements):
         return decision
 
-    required_roles = [r for r in decision.required_roles if r != "room_conference_controller"]
-    optional_roles = [r for r in decision.optional_roles if r != "room_conference_controller"]
-
+    required_roles = list(decision.required_roles)
+    optional_roles = list(decision.optional_roles)
     preferred_families = dict(decision.preferred_families)
+
+    if "room_conference_controller" in required_roles:
+        required_roles.remove("room_conference_controller")
+    if "room_conference_controller" in optional_roles:
+        optional_roles.remove("room_conference_controller")
     preferred_families.pop("room_conference_controller", None)
 
     if "room_audio_processing" in preferred_families:
@@ -119,6 +121,14 @@ def _normalize_meeting_room_topology(
         ]
         preferred_families["room_audio_processing"] = cleaned or ["dsp", "usb_dsp_bridge"]
 
+    # ordinary meeting room: если есть камеры, main camera должна стать required
+    if (requirements.caps.camera_count or 0) >= 1 and "room_camera_main" not in required_roles:
+        required_roles.append("room_camera_main")
+
+    # в meeting room на 2+ камеры secondary камера хотя бы optional
+    if (requirements.caps.camera_count or 0) > 1 and "room_camera_secondary" not in optional_roles:
+        optional_roles.append("room_camera_secondary")
+
     return TopologyDecision(
         topology_key=decision.topology_key,
         score=decision.score,
@@ -127,6 +137,30 @@ def _normalize_meeting_room_topology(
         optional_roles=optional_roles,
         preferred_families=preferred_families,
     )
+
+
+def _fallback_required_roles(requirements: ProjectRequirements) -> list[str]:
+    roles = [
+        "room_display_main",
+        "room_audio_capture",
+        "room_audio_playback",
+        "room_signal_switching",
+        "room_cabling_and_accessories",
+    ]
+
+    if (requirements.caps.camera_count or 0) >= 1:
+        roles.insert(1, "room_camera_main")
+
+    return roles
+
+
+def _fallback_optional_roles(requirements: ProjectRequirements) -> list[str]:
+    roles: list[str] = []
+    if (requirements.caps.camera_count or 0) > 1:
+        roles.append("room_camera_secondary")
+    if (requirements.caps.seat_count or 0) >= 10:
+        roles.append("room_audio_processing")
+    return roles
 
 
 def select_topology(requirements: ProjectRequirements) -> TopologyDecision:
@@ -180,7 +214,7 @@ def select_topology(requirements: ProjectRequirements) -> TopologyDecision:
         topology_key=f"{requirements.room_type}_fallback",
         score=0.0,
         reason=f"fallback for room_type={requirements.room_type}",
-        required_roles=list(room_def.default_roles),
-        optional_roles=[],
+        required_roles=_fallback_required_roles(requirements) or list(room_def.default_roles),
+        optional_roles=_fallback_optional_roles(requirements),
         preferred_families={},
     )

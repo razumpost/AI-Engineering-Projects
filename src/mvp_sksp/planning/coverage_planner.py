@@ -127,6 +127,55 @@ def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any, req: Pro
             return False
         return True
 
+    if role_key == "room_signal_switching":
+        if cls.family not in {"matrix_switcher", "presentation_switcher", "av_over_ip_tx", "av_over_ip_rx", "simple_io_hub"}:
+            return False
+
+        positive_needles = [
+            "switcher",
+            "matrix",
+            "коммутатор",
+            "presentation",
+            "byod",
+            "gateway",
+            "usb bridge",
+            "wireless presentation",
+            "dock",
+            "hub",
+            "hdbaset",
+            "extender",
+            "transmitter",
+            "receiver",
+            "tx",
+            "rx",
+        ]
+        negative_needles = [
+            "intel i3",
+            "intel i5",
+            "intel i7",
+            "celeron",
+            "ryzen",
+            "win 10",
+            "win 11",
+            "android 5.0",
+            "media player",
+            "spinetix",
+            "slot pc",
+            "ops",
+            "mini pc",
+        ]
+
+        has_positive = any(x in t for x in positive_needles)
+        has_negative = any(x in t for x in negative_needles)
+
+        if has_negative and not has_positive:
+            return False
+
+        if cls.family == "simple_io_hub" and not has_positive:
+            return False
+
+        return True
+
     if role_key == "room_audio_playback":
         if cls.family in {"mounting_kit", "cabling_av"}:
             return False
@@ -144,11 +193,31 @@ def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any, req: Pro
         if cls.family not in {"display_panel", "interactive_panel", "display", "projector"}:
             return False
 
-        # для meeting room проектор в общем случае уже исключён выше, но подстрахуемся
         if req.room_type == "meeting_room" and cls.family == "projector":
             return False
 
-        # выкидываем очевидно нерелевантные display-like варианты
+        hard_mount_needles = [
+            "mount kit",
+            "ceiling mount",
+            "wall mount",
+            "pull-out",
+            "pull out",
+            "bracket",
+            "кронштейн",
+            "стойка",
+            "тележка",
+            "trolley",
+            "back-to-back",
+            "back to back",
+            "micro adjustable",
+            "height-adjustable",
+            "height adjustable",
+            "rotate",
+            "fixed",
+        ]
+        if any(x in t for x in hard_mount_needles):
+            return False
+
         bad_needles = [
             "transparent",
             "прозрачн",
@@ -168,7 +237,6 @@ def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any, req: Pro
         if any(x in t for x in bad_needles):
             return False
 
-        # для переговорки на много мест не брать слишком маленькие дисплеи
         if req.room_type == "meeting_room":
             min_diag = _meeting_room_min_display_diag(req)
             diag = _extract_diag_inches(t)
@@ -192,12 +260,7 @@ def _role_predicate(role_key: str, cls: ClassifiedCandidate, item: Any, req: Pro
             return False
         if "smart display" in t or "all in one smart display" in t:
             return False
-        if not (
-            "camera" in t
-            or "камера" in t
-            or "ptz" in t
-            or "videobar" in t
-        ):
+        if not ("camera" in t or "камера" in t or "ptz" in t or "videobar" in t):
             return False
         return True
 
@@ -248,6 +311,8 @@ def _role_score(
     if role.role_key == "room_display_main":
         if "transparent" in t or "прозрачн" in t or "холодильник" in t or "outdoor" in t:
             score -= 500.0
+        if any(x in t for x in ["mount kit", "ceiling mount", "wall mount", "trolley", "кронштейн", "стойка", "тележка"]):
+            score -= 1000.0
         diag = _extract_diag_inches(t)
         if diag is not None:
             min_diag = _meeting_room_min_display_diag(req)
@@ -265,6 +330,14 @@ def _role_score(
     if role.role_key == "room_audio_capture":
         if "ceiling microphone" in t or "beamforming" in t or "table microphone" in t:
             score += 5.0
+
+    if role.role_key == "room_signal_switching":
+        if any(x in t for x in ["switcher", "matrix", "коммутатор", "gateway", "dock", "wireless presentation", "hdbaset"]):
+            score += 6.0
+        if any(x in t for x in ["intel i5", "intel i7", "win 10", "media player", "spinetix", "ops"]) and not any(
+            x in t for x in ["switcher", "matrix", "gateway", "dock", "hub"]
+        ):
+            score -= 200.0
 
     return score
 
@@ -298,7 +371,6 @@ def _allowed_families_from_roles(topology: TopologyDecision, roles: list[Expande
     for fams in (topology.preferred_families or {}).values():
         vals.extend(fams or [])
 
-    # Оставляем только нейтральные support family.
     vals.extend(
         [
             "cabling_av",
@@ -440,6 +512,16 @@ def build_filtered_pool_for_coverage(
         for dbg in role_debug
     )
 
+    # если ядро не закрыто, support-монтаж в финальную выдачу не пускаем
+    if core_required_uncovered:
+        for dbg in role_debug:
+            if dbg.role_key == "room_cabling_and_accessories" and dbg.selected_candidate_ids:
+                for cid in dbg.selected_candidate_ids:
+                    kept.discard(cid)
+                dbg.warnings.append("suppressed_until_core_roles_closed")
+                dbg.selected_candidate_ids = []
+                dbg.selected_families = []
+
     support_families = {
         "conference_controller",
         "dsp",
@@ -455,7 +537,6 @@ def build_filtered_pool_for_coverage(
         "power_accessories",
     }
 
-    # support-добор разрешаем только если ядро уже хоть как-то закрыто
     if not core_required_uncovered:
         for cid in eligible:
             if cid in kept:

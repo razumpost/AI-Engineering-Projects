@@ -64,6 +64,27 @@ def _infer_room_type(raw: str) -> str:
     return "meeting_room"
 
 
+def _explicit_discussion_request(raw: str, graph_flags: dict) -> bool:
+    if bool(graph_flags.get("discussion")):
+        return True
+
+    return _contains_any(
+        raw,
+        [
+            "пульт делегата",
+            "пульты делегатов",
+            "пульт председателя",
+            "delegate unit",
+            "chairman unit",
+            "дискуссион",
+            "discussion system",
+            "conference unit",
+            "центральный блок конференц",
+            "центральный блок дискуссион",
+        ],
+    )
+
+
 def _extract_seat_count(raw: str, graph_flags: dict) -> int | None:
     seats = graph_flags.get("seats")
     if isinstance(seats, int) and seats > 0:
@@ -71,11 +92,15 @@ def _extract_seat_count(raw: str, graph_flags: dict) -> int | None:
     return _extract_int(_RE_SEATS, raw)
 
 
-def _extract_camera_count(raw: str, graph_flags: dict) -> int | None:
-    camera_count = graph_flags.get("camera_count")
-    if isinstance(camera_count, int) and camera_count > 0:
-        return camera_count
+def _explicit_camera_request(raw: str) -> bool:
+    if _extract_int(_RE_CAM_NUM, raw):
+        return True
+    if _extract_word_number(raw, ["камеры", "камер", "camera", "ptz"]):
+        return True
+    return _contains_any(raw, ["камера", "camera", "ptz"])
 
+
+def _extract_camera_count(raw: str, graph_flags: dict, *, discussion_mode: bool) -> int | None:
     direct = _extract_int(_RE_CAM_NUM, raw)
     if direct:
         return direct
@@ -84,19 +109,35 @@ def _extract_camera_count(raw: str, graph_flags: dict) -> int | None:
     if by_word:
         return by_word
 
+    if discussion_mode:
+        return None
+
+    camera_count = graph_flags.get("camera_count")
+    if isinstance(camera_count, int) and camera_count > 0:
+        return camera_count
+
     if graph_flags.get("camera_requested"):
         return 1
 
     return None
 
 
-def _extract_display_count(raw: str, graph_flags: dict) -> int | None:
+def _explicit_display_request(raw: str) -> bool:
+    if _extract_int(_RE_DISPLAY_NUM, raw):
+        return True
+    return _contains_any(raw, ["дисплей", "панель", "экран", "display", "monitor"])
+
+
+def _extract_display_count(raw: str, graph_flags: dict, *, discussion_mode: bool) -> int | None:
     direct = _extract_int(_RE_DISPLAY_NUM, raw)
     if direct:
         return direct
 
     if _contains_any(raw, ["дисплей", "панель", "экран", "display", "monitor"]):
         return 1
+
+    if discussion_mode:
+        return None
 
     if graph_flags.get("display_requested"):
         return 1
@@ -127,32 +168,37 @@ def parse_requirements(raw: str) -> ProjectRequirements:
     gf = derive_request_flags(t)
 
     room_type = _infer_room_type(t)
+    discussion_mode = _explicit_discussion_request(t, gf)
 
     seat_count = _extract_seat_count(t, gf)
-    camera_count = _extract_camera_count(t, gf)
-    display_count = _extract_display_count(t, gf)
+    camera_count = _extract_camera_count(t, gf, discussion_mode=discussion_mode)
+    display_count = _extract_display_count(t, gf, discussion_mode=discussion_mode)
 
     explicit_projector = _contains_any(t, ["проектор", "projector", "короткофокус"])
-    explicit_display = _contains_any(t, ["дисплей", "панель", "экран", "display", "monitor"])
+    explicit_display = _explicit_display_request(t)
+    explicit_camera = _explicit_camera_request(t)
 
+    # Для discussion-запросов presentation/vks не включаем по умолчанию,
+    # если пользователь явно не говорил про дисплей/камеры/видеосвязь.
     presentation = bool(
-        explicit_display
-        or _contains_any(t, ["презента", "вывод контента", "источник сигнала", "hdmi"])
+        (explicit_display or _contains_any(t, ["презента", "вывод контента", "источник сигнала", "hdmi"]))
+        and not discussion_mode
     )
 
     flags = {
-        "vks": _contains_any(t, ["вкс", "zoom", "teams", "meet", "видеосвяз", "conference call"]),
-        "byod": _contains_any(t, ["byod", "usb-c", "type-c", "подключение ноутбука", "ноутбук заказчика"]),
+        "vks": _contains_any(t, ["вкс", "zoom", "teams", "meet", "видеосвяз", "conference call"]) and not discussion_mode,
+        "byod": _contains_any(t, ["byod", "usb-c", "type-c", "подключение ноутбука", "ноутбук заказчика"]) and not discussion_mode,
         "presentation": presentation,
         "recording": _contains_any(t, ["запись", "recording", "архив"]),
         "streaming": _contains_any(t, ["трансляц", "stream", "стрим"]),
         "speech_reinforcement": _contains_any(t, ["озвучивание", "подзвучка", "speech reinforcement"]),
-        "control": _explicit_control_only(t),
+        # discussion-intent должен жёстко вести в discussion topology
+        "control": _explicit_control_only(t) or discussion_mode,
     }
 
     exclusions = {
         "led": False,
-        "projector": bool(explicit_display and not explicit_projector),
+        "projector": bool(explicit_display and not explicit_projector and not discussion_mode),
         "operator_room": _contains_any(t, ["операторская", "operator room"]),
     }
 
@@ -163,6 +209,7 @@ def parse_requirements(raw: str) -> ProjectRequirements:
         "display_count": 0.85 if display_count else 0.0,
         "vks": 0.95 if flags["vks"] else 0.0,
         "byod": 0.95 if flags["byod"] else 0.0,
+        "discussion": 0.99 if discussion_mode else 0.0,
     }
 
     return ProjectRequirements(

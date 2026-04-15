@@ -71,6 +71,10 @@ def _enabled_capabilities(requirements: ProjectRequirements, room_default_caps: 
         if enabled_flag:
             enabled.add(cap_key)
 
+    # камера — это не только vks, но и явный camera_count
+    if (requirements.caps.camera_count or 0) >= 1:
+        enabled.add("vks")
+
     return sorted(enabled)
 
 
@@ -129,7 +133,6 @@ def _filter_allowed_families(role_key: str, role_def: RoleDef, requirements: Pro
                 if fam not in allowed:
                     allowed.append(fam)
     else:
-        # ordinary meeting room: никаких discussion family по умолчанию
         if role_key == "room_audio_capture":
             allowed = [
                 f for f in allowed
@@ -235,6 +238,8 @@ def _build_role(role_key: str, source: str, requirements: ProjectRequirements, r
     suggested_qty = _suggested_qty(role_key, role_def.qty_rule, requirements)
 
     notes = list(role_def.notes)
+    if role_key == "room_camera_main" and (requirements.caps.camera_count or 0) >= 1:
+        notes.append("Главная камера добавлена из caps.camera_count >= 1.")
     if role_key == "room_camera_secondary" and suggested_qty:
         notes.append("Роль добавлена из caps.camera_count > 1.")
     if role_key == "room_display_main" and requirements.room_type == "meeting_room":
@@ -310,6 +315,15 @@ def expand_required_roles(requirements: ProjectRequirements) -> list[ExpandedRol
 
     if requirements.room_type == "meeting_room":
         cam_count = requirements.caps.camera_count or 0
+
+        if cam_count >= 1 and "room_camera_main" not in seen:
+            role_def = km.roles.get("room_camera_main")
+            if role_def:
+                built = _build_role("room_camera_main", "derived:camera_count", requirements, role_def)
+                if built.allowed_families:
+                    out.append(built)
+                    seen.add("room_camera_main")
+
         if cam_count > 1 and "room_camera_secondary" not in seen:
             role_def = km.roles.get("room_camera_secondary")
             if role_def:
