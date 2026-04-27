@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from ..adapters.bitrix_links import task_url
 from ..adapters.deal_kuzu_retriever import KuzuDealRetriever
@@ -106,8 +106,24 @@ def _is_meeting_room_graph(graph_family_ids: list[str]) -> bool:
     return "meeting_room_solution" in graph_family_ids and not _is_discussion_graph(graph_family_ids)
 
 
+def _is_videowall_graph(graph_family_ids: list[str]) -> bool:
+    return any(
+        fam in graph_family_ids
+        for fam in [
+            "videowall_solution",
+            "videowall_panel",
+            "videowall_mount",
+            "videowall_controller",
+            "matrix_switcher",
+        ]
+    )
+
+
 def _graph_allowed_categories(graph_family_ids: list[str]) -> set[str]:
     allowed: set[str] = set()
+
+    if _is_videowall_graph(graph_family_ids):
+        allowed.update({"display", "mount", "controller", "cable"})
 
     if _is_discussion_graph(graph_family_ids):
         allowed.update({"microphone", "controller", "audio", "cable"})
@@ -119,6 +135,14 @@ def _graph_allowed_categories(graph_family_ids: list[str]) -> set[str]:
         allowed.add("camera")
     if "display" in graph_family_ids or "mount_display" in graph_family_ids:
         allowed.update({"display", "mount"})
+    if (
+        "videowall_controller" in graph_family_ids
+        or "matrix_switcher" in graph_family_ids
+        or "discussion_central_unit" in graph_family_ids
+    ):
+        allowed.add("controller")
+    if "cabling_av" in graph_family_ids:
+        allowed.add("cable")
     if "smart_player" in graph_family_ids or "signage_license" in graph_family_ids:
         allowed.update({"software", "ops"})
 
@@ -164,6 +188,21 @@ def _meeting_room_queries() -> list[str]:
     ]
 
 
+def _videowall_queries() -> list[str]:
+    return [
+        "videowall panel",
+        "lcd videowall panel",
+        "videowall mount",
+        "pull-out wall mount",
+        "videowall frame",
+        "videowall controller",
+        "videowall processor",
+        "video wall processor",
+        "matrix switcher",
+        "hdmi matrix switcher",
+    ]
+
+
 def _merge_price_search(
     pool: CandidatePool,
     price_store: PriceLayerStore,
@@ -172,11 +211,25 @@ def _merge_price_search(
     limit: int = 20,
     filter_by_role: bool = False,
     allowed_categories: set[str] | None = None,
+    diagnostics: list[dict] | None = None,
+    diagnostics_phase: str = "graph",
 ) -> CandidatePool:
     hint_pool = price_store.search_price_candidates(query, limit=limit)
+    raw_items = hint_pool.items
+
+    if diagnostics is not None:
+        raw_top: list[dict] = []
+        for item in raw_items[:10]:
+            raw_top.append(
+                {
+                    "candidate_id": item.candidate_id,
+                    "name": (item.name or "")[:220],
+                    "computed_category": _candidate_category(item),
+                }
+            )
 
     filtered_items = []
-    for item in hint_pool.items:
+    for item in raw_items:
         category = _candidate_category(item)
 
         if allowed_categories and category not in allowed_categories:
@@ -187,8 +240,151 @@ def _merge_price_search(
 
         filtered_items.append(item)
 
+    if diagnostics is not None:
+        filt_top: list[dict] = []
+        for item in filtered_items[:10]:
+            filt_top.append(
+                {
+                    "candidate_id": item.candidate_id,
+                    "name": (item.name or "")[:220],
+                    "computed_category": _candidate_category(item),
+                }
+            )
+        diagnostics.append(
+            {
+                "phase": diagnostics_phase,
+                "query": query,
+                "limit": limit,
+                "filter_by_role": filter_by_role,
+                "allowed_categories": sorted(allowed_categories) if allowed_categories else None,
+                "raw_search_count": len(raw_items),
+                "raw_top": raw_top,
+                "after_category_and_role_filter_count": len(filtered_items),
+                "after_filter_top": filt_top,
+            }
+        )
+
     hint_pool.items = filtered_items
     return pool.merge(hint_pool)
+
+
+def _looks_like_videowall_panel_or_controller(item: CandidateItem) -> bool:
+    """Diagnostics-only heuristic: whether text resembles videowall panel/controller/matrix core."""
+    text = _candidate_text(item)
+    cat = _candidate_category(item)
+    if cat == "display" and any(
+        x in text
+        for x in [
+            "videowall",
+            "видеостен",
+            "video wall",
+            "lcd videowall",
+            "narrow bezel",
+            "ultra narrow bezel",
+            "панель видеостен",
+            "дисплей для видеостен",
+        ]
+    ):
+        return True
+    if cat == "controller" and any(
+        x in text
+        for x in [
+            "videowall controller",
+            "videowall processor",
+            "video wall processor",
+            "matrix switcher",
+            "hdmi matrix",
+            "матричн",
+            "коммутатор",
+        ]
+    ):
+        return True
+    if any(
+        x in text
+        for x in [
+            "videowall panel",
+            "lcd videowall",
+            "videowall controller",
+            "matrix switcher",
+        ]
+    ):
+        return True
+    return False
+
+
+def _snapshot_pool_top_categories(pool: CandidatePool, top_n: int) -> list[dict]:
+    out: list[dict] = []
+    for item in pool.items[:top_n]:
+        out.append(
+            {
+                "candidate_id": item.candidate_id,
+                "name": (item.name or "")[:220],
+                "computed_category": _candidate_category(item),
+            }
+        )
+    return out
+
+
+def _snapshot_pool_top_scored(
+    pool: CandidatePool,
+    request_text: str,
+    top_n: int,
+    *,
+    videowall_graph: bool,
+    discussion_graph: bool,
+    meeting_room_graph: bool,
+) -> list[dict]:
+    out: list[dict] = []
+    for item in pool.items[:top_n]:
+        if videowall_graph:
+            score = _videowall_relevance_score(item, request_text)
+        elif discussion_graph:
+            score = _discussion_relevance_score(item, request_text)
+        elif meeting_room_graph:
+            score = _meeting_room_relevance_score(item, request_text)
+        else:
+            score = 0
+        out.append(
+            {
+                "candidate_id": item.candidate_id,
+                "name": (item.name or "")[:220],
+                "computed_category": _candidate_category(item),
+                "score": score,
+            }
+        )
+    return out
+
+
+_VIDEO_WALL_PROBE_QUERIES = [
+    "videowall panel",
+    "lcd videowall panel",
+    "videowall controller",
+    "videowall processor",
+    "matrix switcher",
+]
+
+
+def _run_videowall_probe_searches(price_store: PriceLayerStore, *, limit: int = 15) -> list[dict]:
+    rows: list[dict] = []
+    for q in _VIDEO_WALL_PROBE_QUERIES:
+        hint = price_store.search_price_candidates(q, limit=limit)
+        top: list[dict] = []
+        for item in hint.items[:10]:
+            top.append(
+                {
+                    "candidate_id": item.candidate_id,
+                    "name": (item.name or "")[:220],
+                    "computed_category": _candidate_category(item),
+                }
+            )
+        rows.append(
+            {
+                "probe_query": q,
+                "raw_search_count": len(hint.items),
+                "raw_top": top,
+            }
+        )
+    return rows
 
 
 def _request_mentions_cabling(request_text: str) -> bool:
@@ -434,6 +630,230 @@ def _prune_pool_for_meeting_room_context(pool: CandidatePool, request_text: str)
     return CandidatePool(items=items[:60], tasks=pool.tasks)
 
 
+def _videowall_expected_categories(graph_family_ids: list[str]) -> set[str]:
+    expected: set[str] = set()
+    if "videowall_panel" in graph_family_ids:
+        expected.add("display")
+    if "videowall_mount" in graph_family_ids:
+        expected.add("mount")
+    if "videowall_controller" in graph_family_ids or "matrix_switcher" in graph_family_ids:
+        expected.add("controller")
+    if "cabling_av" in graph_family_ids:
+        expected.add("cable")
+    if not expected:
+        expected.update({"display", "mount", "controller", "cable"})
+    return expected
+
+
+def _videowall_relevance_score(item: CandidateItem, request_text: str) -> int:
+    text = _candidate_text(item)
+    category = _candidate_category(item)
+    mention_cabling = _request_mentions_cabling(request_text)
+
+    score = 0
+
+    if category == "display":
+        score += 80
+    elif category == "mount":
+        score += 20
+    elif category == "controller":
+        score += 95
+    elif category == "cable":
+        score += 4 if mention_cabling else -20
+    else:
+        score -= 120
+
+    if any(x in text for x in ["videowall", "видеостен", "video wall"]):
+        score += 90
+
+    if category == "display":
+        if any(x in text for x in ["videowall", "видеостен", "narrow bezel", "ultra narrow bezel", "шов"]):
+            score += 40
+        if any(x in text for x in ["smart display", "all in one", "interactive display", "интерактивн"]):
+            score -= 180
+
+    if category == "mount":
+        if any(x in text for x in ["videowall mount", "pull-out", "frame", "каркас", "крепление видеостен", "настенн"]):
+            score += 40
+        if any(x in text for x in ["trolley", "mobile stand", "тележка"]):
+            score -= 60
+
+    if category == "controller":
+        if any(x in text for x in ["videowall controller", "videowall processor", "video wall processor"]):
+            score += 85
+        if any(x in text for x in ["matrix switcher", "hdmi matrix", "матричн", "коммутатор"]):
+            score += 70
+
+    if category == "cable":
+        if any(x in text for x in ["displayport", "hdmi", "cat6", "витая пара"]):
+            score += 8
+
+    if any(x in text for x in ["calibration", "калибров", "kit", "комплект", "service tool", "toolkit"]):
+        score -= 140
+
+    if any(x in text for x in ["projector", "проектор", "ansi lumens", "throw ratio", "laser phosphor"]):
+        score -= 220
+    if any(x in text for x in ["ptz", "conference camera", "камера", "webcam"]):
+        score -= 220
+    if any(x in text for x in ["spinetix", "digital signage", "signage", "html5 widgets", "smil"]):
+        score -= 200
+    if any(x in text for x in ["ops", "mini pc", "slot pc", "media player"]):
+        score -= 200
+    if any(x in text for x in ["meeting room", "conference room"]):
+        score -= 70
+
+    return score
+
+
+def _is_accessory_like(item: CandidateItem) -> bool:
+    text = _candidate_text(item)
+    return any(
+        x in text
+        for x in [
+            "calibration kit",
+            "калибров",
+            "service toolkit",
+            "toolkit",
+            "монтажный комплект",
+            "комплект юстировки",
+            "аксессуар",
+            "accessory",
+            "spare",
+            "зип",
+        ]
+    )
+
+
+def _is_videowall_core_candidate(item: CandidateItem) -> bool:
+    category = _candidate_category(item)
+    text = _candidate_text(item)
+
+    if _is_accessory_like(item):
+        return False
+
+    if category == "display":
+        return any(x in text for x in ["videowall", "видеостен", "narrow bezel", "ultra narrow bezel", "шов", "panel", "панель", "lcd"])
+    if category == "controller":
+        return any(
+            x in text
+            for x in [
+                "videowall controller",
+                "videowall processor",
+                "video wall processor",
+                "matrix switcher",
+                "hdmi matrix",
+                "матричн",
+                "коммутатор",
+            ]
+        )
+    return False
+
+
+def _balance_videowall_items(items: list[CandidateItem], graph_family_ids: list[str]) -> list[CandidateItem]:
+    require_panel = "videowall_panel" in graph_family_ids
+    require_controller = ("videowall_controller" in graph_family_ids) or ("matrix_switcher" in graph_family_ids)
+
+    display_bucket = [it for it in items if _candidate_category(it) == "display" and not _is_accessory_like(it)]
+    controller_bucket = [it for it in items if _candidate_category(it) == "controller" and not _is_accessory_like(it)]
+    mount_bucket = [it for it in items if _candidate_category(it) == "mount"]
+    cable_bucket = [it for it in items if _candidate_category(it) == "cable"]
+
+    ordered: list[CandidateItem] = []
+    used_ids: set[str] = set()
+
+    def push(item: CandidateItem | None) -> None:
+        if not item:
+            return
+        cid = item.candidate_id
+        if cid in used_ids:
+            return
+        used_ids.add(cid)
+        ordered.append(item)
+
+    # Ensure core roles appear first when available.
+    if require_panel:
+        push(display_bucket[0] if display_bucket else None)
+    if require_controller:
+        push(controller_bucket[0] if controller_bucket else None)
+
+    # Fill early core with remaining display/controller.
+    for it in display_bucket[1:3]:
+        push(it)
+    for it in controller_bucket[1:3]:
+        push(it)
+
+    # Add dependencies later, limited to avoid mount/cable flood.
+    for it in mount_bucket[:3]:
+        push(it)
+    for it in cable_bucket[:2]:
+        push(it)
+
+    # Tail: remaining items in original score order.
+    for it in items:
+        push(it)
+
+    return ordered
+
+
+def _prune_pool_for_videowall_context(
+    pool: CandidatePool,
+    request_text: str,
+    graph_family_ids: list[str],
+) -> CandidatePool:
+    expected_categories = _videowall_expected_categories(graph_family_ids)
+    mention_cabling = _request_mentions_cabling(request_text)
+
+    scored: list[tuple[int, CandidateItem]] = []
+    for item in pool.items:
+        category = _candidate_category(item)
+        if category not in expected_categories:
+            continue
+
+        score = _videowall_relevance_score(item, request_text)
+        text = _candidate_text(item)
+
+        if category == "display" and "videowall_panel" in graph_family_ids:
+            if _is_accessory_like(item):
+                continue
+            if not any(x in text for x in ["videowall", "видеостен", "narrow bezel", "ultra narrow bezel", "шов", "panel", "панель", "lcd"]):
+                continue
+
+        if category == "mount" and "videowall_mount" in graph_family_ids:
+            if not any(x in text for x in ["videowall mount", "pull-out", "frame", "каркас", "крепление видеостен", "настенн"]):
+                continue
+
+        if category == "controller" and ("videowall_controller" in graph_family_ids or "matrix_switcher" in graph_family_ids):
+            if not any(
+                x in text
+                for x in [
+                    "videowall controller",
+                    "videowall processor",
+                    "video wall processor",
+                    "matrix switcher",
+                    "hdmi matrix",
+                    "матричн",
+                    "коммутатор",
+                ]
+            ):
+                continue
+
+        if category == "cable" and "cabling_av" in graph_family_ids and not mention_cabling:
+            # Fail-closed for videowall core: don't let cables dominate top when cabling wasn't requested.
+            if score < 30:
+                continue
+
+        if score < 30:
+            continue
+        scored.append((score, item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    items = [item for _, item in scored]
+
+    items = _dedupe_items(items)
+    items = _balance_videowall_items(items, graph_family_ids)
+    return CandidatePool(items=items[:50], tasks=pool.tasks)
+
+
 def build_candidate_pool_for_deal(
     deal_id: str,
     transcript_text: str,
@@ -441,6 +861,7 @@ def build_candidate_pool_for_deal(
     current_spec: Optional[Spec] = None,
     mode: str = "compose",
     include_global: bool = True,
+    retrieval_diagnostics: dict[str, Any] | None = None,
 ) -> CandidatePool:
     pg = PostgresDealStore()
     deal_tasks = pg.get_tasks_for_deal(deal_id)
@@ -479,6 +900,7 @@ def build_candidate_pool_for_deal(
     graph_allowed_categories = _graph_allowed_categories(graph_family_ids)
     discussion_graph = _is_discussion_graph(graph_family_ids)
     meeting_room_graph = _is_meeting_room_graph(graph_family_ids)
+    videowall_graph = _is_videowall_graph(graph_family_ids)
 
     graph_queries = graph_families_to_queries(graph_family_ids)
 
@@ -492,23 +914,40 @@ def build_candidate_pool_for_deal(
             if q not in graph_queries:
                 graph_queries.append(q)
 
+    if videowall_graph:
+        for q in _videowall_queries():
+            if q not in graph_queries:
+                graph_queries.append(q)
+
+    merge_diag: list[dict] | None = None
+    if retrieval_diagnostics is not None:
+        merge_diag = []
+
     for gq in graph_queries:
         pool = _merge_price_search(
             pool,
             price_store,
             gq,
-            limit=30 if discussion_graph else 18,
+            limit=30 if discussion_graph else (28 if videowall_graph else 18),
             filter_by_role=False,
-            allowed_categories=(graph_allowed_categories or None) if (discussion_graph or meeting_room_graph) else None,
+            allowed_categories=(graph_allowed_categories or None)
+            if (discussion_graph or meeting_room_graph or videowall_graph)
+            else None,
+            diagnostics=merge_diag,
+            diagnostics_phase="graph_query",
         )
 
     pool = _merge_price_search(
         pool,
         price_store,
         transcript_text,
-        limit=15 if discussion_graph else 20,
+        limit=15 if discussion_graph else (18 if videowall_graph else 20),
         filter_by_role=False,
-        allowed_categories=(graph_allowed_categories or None) if (discussion_graph or meeting_room_graph) else None,
+        allowed_categories=(graph_allowed_categories or None)
+        if (discussion_graph or meeting_room_graph or videowall_graph)
+        else None,
+        diagnostics=merge_diag,
+        diagnostics_phase="transcript",
     )
 
     role_queries = build_role_price_queries(transcript_text)
@@ -521,14 +960,49 @@ def build_candidate_pool_for_deal(
             rq,
             limit=20,
             filter_by_role=True,
-            allowed_categories=(graph_allowed_categories or None) if (discussion_graph or meeting_room_graph) else None,
+            allowed_categories=(graph_allowed_categories or None)
+            if (discussion_graph or meeting_room_graph or videowall_graph)
+            else None,
+            diagnostics=merge_diag,
+            diagnostics_phase="role_query",
         )
 
     pool = price_store.enrich_pool_prices(pool)
 
+    if retrieval_diagnostics is not None:
+        retrieval_diagnostics["graph_family_ids"] = list(graph_family_ids)
+        retrieval_diagnostics["graph_queries"] = list(graph_queries)
+        retrieval_diagnostics["videowall_graph"] = videowall_graph
+        retrieval_diagnostics["discussion_graph"] = discussion_graph
+        retrieval_diagnostics["meeting_room_graph"] = meeting_room_graph
+        retrieval_diagnostics["graph_allowed_categories"] = (
+            sorted(graph_allowed_categories) if graph_allowed_categories else []
+        )
+        retrieval_diagnostics["merge_steps"] = merge_diag or []
+        retrieval_diagnostics["pool_before_prune_top20"] = _snapshot_pool_top_categories(pool, 20)
+        retrieval_diagnostics["panel_controller_like_before_prune"] = any(
+            _looks_like_videowall_panel_or_controller(it) for it in pool.items
+        )
+        if videowall_graph:
+            retrieval_diagnostics["videowall_probe_searches"] = _run_videowall_probe_searches(
+                price_store, limit=15
+            )
+
     if discussion_graph:
         pool = _prune_pool_for_discussion_context(pool, transcript_text)
+    elif videowall_graph:
+        pool = _prune_pool_for_videowall_context(pool, transcript_text, graph_family_ids)
     elif meeting_room_graph:
         pool = _prune_pool_for_meeting_room_context(pool, transcript_text)
+
+    if retrieval_diagnostics is not None:
+        retrieval_diagnostics["pool_after_prune_top20"] = _snapshot_pool_top_scored(
+            pool,
+            transcript_text,
+            20,
+            videowall_graph=videowall_graph,
+            discussion_graph=discussion_graph,
+            meeting_room_graph=meeting_room_graph,
+        )
 
     return pool

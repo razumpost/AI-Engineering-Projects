@@ -19,6 +19,37 @@ _FAMILY_TO_PRICE_QUERIES: dict[str, list[str]] = {
         "display trolley",
         "wall mount display",
     ],
+    "videowall_solution": [
+        "videowall panel",
+        "videowall controller",
+        "videowall mount",
+        "matrix switcher",
+    ],
+    "videowall_panel": [
+        "videowall panel",
+        "lcd videowall panel",
+        "narrow bezel videowall display",
+        "панель для видеостены",
+        "дисплей для видеостены",
+    ],
+    "videowall_mount": [
+        "videowall mount",
+        "pull-out wall mount",
+        "videowall frame",
+    ],
+    "videowall_controller": [
+        "videowall controller",
+        "videowall processor",
+        "video wall processor",
+        "контроллер видеостены",
+        "процессор видеостены",
+    ],
+    "matrix_switcher": [
+        "matrix switcher",
+        "hdmi matrix switcher",
+        "matrix controller",
+        "матричный коммутатор",
+    ],
     "ptz_camera": [
         "ptz camera",
         "conference camera",

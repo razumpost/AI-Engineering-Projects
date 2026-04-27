@@ -35,6 +35,41 @@ FAMILIES: list[FamilyDef] = [
         keywords=["переговорная", "conference", "meeting room", "комната переговоров"],
     ),
     FamilyDef(
+        family_id="videowall_solution",
+        name="Videowall solution",
+        kind="solution",
+        description="Комплектное решение для видеостены (панели + крепление + коммутация/управление).",
+        keywords=["videowall", "видеостен", "видеостена", "стена 3x3", "стена 3х3"],
+    ),
+    FamilyDef(
+        family_id="videowall_panel",
+        name="Videowall panel",
+        kind="hardware",
+        description="Профессиональная панель для видеостены (LCD videowall).",
+        keywords=["videowall panel", "панель видеостен", "lcd videowall", "видеопанель"],
+    ),
+    FamilyDef(
+        family_id="videowall_mount",
+        name="Videowall mount / frame",
+        kind="mount",
+        description="Настенное/каркасное крепление для видеостены.",
+        keywords=["videowall mount", "крепление видеостен", "кронштейн видеостен", "каркас видеостен"],
+    ),
+    FamilyDef(
+        family_id="videowall_controller",
+        name="Videowall controller / processor",
+        kind="hardware",
+        description="Контроллер/процессор видеостены: роутинг источников, layout, управление отображением.",
+        keywords=["videowall controller", "контроллер видеостен", "процессор видеостен", "matrix", "сигнал"],
+    ),
+    FamilyDef(
+        family_id="matrix_switcher",
+        name="Matrix switcher / presentation switcher",
+        kind="hardware",
+        description="Матричный/презентационный коммутатор для многих входов/выходов.",
+        keywords=["matrix", "switcher", "коммутатор", "hdmi matrix"],
+    ),
+    FamilyDef(
         family_id="display",
         name="Professional display",
         kind="hardware",
@@ -248,6 +283,46 @@ RELATIONS: list[RelationDef] = [
     ),
     RelationDef(
         rel_type="REQUIRES",
+        src_family="videowall_solution",
+        dst_family="videowall_panel",
+        condition_key="always",
+        rationale="Видеостена строится из набора панелей.",
+        priority=5,
+    ),
+    RelationDef(
+        rel_type="OPTIONAL_WITH",
+        src_family="videowall_panel",
+        dst_family="videowall_mount",
+        condition_key="videowall_wall_mount",
+        rationale="Для настенного монтажа видеостены нужна система крепления/каркас.",
+        priority=6,
+    ),
+    RelationDef(
+        rel_type="OPTIONAL_WITH",
+        src_family="videowall_solution",
+        dst_family="videowall_controller",
+        condition_key="videowall_control_or_routing",
+        rationale="Для маршрутизации источников и управления отображением требуется контроллер/процессор видеостены.",
+        priority=7,
+    ),
+    RelationDef(
+        rel_type="OPTIONAL_WITH",
+        src_family="videowall_solution",
+        dst_family="matrix_switcher",
+        condition_key="many_av_io_ports",
+        rationale="При большом числе входов/выходов часто нужен матричный коммутатор.",
+        priority=8,
+    ),
+    RelationDef(
+        rel_type="OPTIONAL_WITH",
+        src_family="videowall_solution",
+        dst_family="cabling_av",
+        condition_key="always",
+        rationale="Видеостена требует кабельной инфраструктуры/коммутации.",
+        priority=9,
+    ),
+    RelationDef(
+        rel_type="REQUIRES",
         src_family="delegate_unit",
         dst_family="discussion_central_unit",
         condition_key="always",
@@ -308,6 +383,25 @@ def _extract_int(patterns: list[str], text: str) -> int | None:
     return None
 
 
+def _infer_wall_grid_panel_count(text: str) -> int | None:
+    t = text or ""
+    m = re.search(
+        r"(?:видеостен\w*|videowall|стен\w*)?\s*(\d)\s*[xх*]\s*(\d)(?:\s*(?:из\s*)?(?:панел|монитор|экран))?",
+        t,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return None
+    try:
+        a = int(m.group(1))
+        b = int(m.group(2))
+    except Exception:
+        return None
+    if a <= 0 or b <= 0:
+        return None
+    return a * b
+
+
 def derive_request_flags(request_text: str) -> dict[str, Any]:
     q = (request_text or "").casefold()
 
@@ -345,9 +439,40 @@ def derive_request_flags(request_text: str) -> dict[str, Any]:
             "conference unit",
         ]
     )
-    display_requested = any(x in q for x in ["дисплей", "экран", "панель", "display", "screen"])
+    display_requested = any(x in q for x in ["дисплей", "экран", "панель", "display", "screen", "видеостен", "videowall"])
     microphone_requested = any(x in q for x in ["микрофон", "microphone", "mic"])
-    camera_requested = (camera_count or 0) > 0 or any(x in q for x in ["камера", "camera", "ptz"])
+    camera_requested = (camera_count or 0) > 0 or any(x in q for x in ["камера", "ptz", "webcam"]) or (
+        "camera" in q and ("ptz" in q or "usb" in q or "conference" in q)
+    )
+
+    videowall_wall_mount = any(
+        x in q
+        for x in [
+            "настен",
+            "wall mount",
+            "wall-mount",
+            "креплен",
+            "кронштейн",
+            "каркас",
+        ]
+    )
+    videowall_control_or_routing = any(
+        x in q
+        for x in [
+            "управлен",
+            "управление отображ",
+            "маршрутиз",
+            "роутинг",
+            "matrix",
+            "контроллер видеостен",
+            "videowall controller",
+        ]
+    )
+    many_av_io_ports = bool(
+        _extract_int([r"(\d{1,3})\s+вход"], q)
+        and _extract_int([r"(\d{1,3})\s+выход"], q)
+    )
+
     ip_av = any(x in q for x in ["ip", "ndi", "network", "lan", "poe"])
 
     return {
@@ -362,24 +487,27 @@ def derive_request_flags(request_text: str) -> dict[str, Any]:
         "multi_camera": (camera_count or 0) >= 2,
         "room_large": (seats or 0) >= 16,
         "small_room_usb": ("usb" in q or "byod" in q) and not discussion and (seats or 0) <= 10,
+        "videowall_wall_mount": videowall_wall_mount,
+        "videowall_control_or_routing": videowall_control_or_routing,
+        "many_av_io_ports": many_av_io_ports,
         "external_audio_processing": any(
-        x in q
-        for x in [
-            "dsp",
-            "аудиопроцессор",
-            "внешняя акустика",
-            "усилитель",
-            "интеграция со звуком",
-            "интеграция с аудио",
-            "подключение к звуку",
-            "подключение к акустике",
-            "заловой звук",
-            "внешний звук",
-            "внешнее аудио",
-            "интеграция в существующую аудиосистему",
-            "интеграция со звуковой системой",
-        ]
-    ),
+            x in q
+            for x in [
+                "dsp",
+                "аудиопроцессор",
+                "внешняя акустика",
+                "усилитель",
+                "интеграция со звуком",
+                "интеграция с аудио",
+                "подключение к звуку",
+                "подключение к акустике",
+                "заловой звук",
+                "внешний звук",
+                "внешнее аудио",
+                "интеграция в существующую аудиосистему",
+                "интеграция со звуковой системой",
+            ]
+        ),
         "delegate_count_gt_20": (seats or 0) > 20 or "более 20" in q,
         "ip_av": ip_av,
     }
@@ -395,10 +523,26 @@ def infer_seed_families(request_text: str) -> list[str]:
         if family_id not in seeds:
             seeds.append(family_id)
 
+    videowall = bool(_infer_wall_grid_panel_count(request_text)) or any(
+        x in q
+        for x in [
+            "видеостен",
+            "videowall",
+            "ситуацион",
+            "цод",
+            "диспетчер",
+            "стена 3*3",
+            "стена 3х3",
+        ]
+    )
+
+    if videowall:
+        add("videowall_solution")
+
     if any(x in q for x in ["переговор", "conference", "meeting room", "byod"]):
         add("meeting_room_solution")
 
-    if flags["display_requested"]:
+    if flags["display_requested"] and not videowall:
         add("display")
 
     if flags["camera_requested"]:

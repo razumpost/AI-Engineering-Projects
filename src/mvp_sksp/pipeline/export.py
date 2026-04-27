@@ -33,6 +33,12 @@ def _task_link(tid: int, pool: Optional[CandidatePool], s: Settings) -> str:
     return task_url(tid, s)
 
 
+def _md_cell(v: object) -> str:
+    text = "" if v is None else str(v)
+    # Escape markdown table separators and preserve multiline values.
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
 def render_markdown(spec: Spec, *, pool: Optional[CandidatePool] = None, settings: Optional[Settings] = None) -> str:
     s = settings or Settings()
 
@@ -64,8 +70,8 @@ def render_markdown(spec: Spec, *, pool: Optional[CandidatePool] = None, setting
             ev = " ; ".join(_task_link(tid, pool, s) for tid in ev_ids) if ev_ids else ""
             comment = ev
             lines.append(
-                f"| {n} | {it.manufacturer or ''} | {it.sku or ''} | {it.description or it.name} | "
-                f"{(str(price) if price is not None else '')} | {it.qty} | {(str(total) if total is not None else '')} | {comment} |"
+                f"| {n} | {_md_cell(it.manufacturer or '')} | {_md_cell(it.sku or '')} | {_md_cell(it.description or it.name)} | "
+                f"{_md_cell(str(price) if price is not None else '')} | {_md_cell(it.qty)} | {_md_cell(str(total) if total is not None else '')} | {_md_cell(comment)} |"
             )
 
     lines.append("\n## 3) Почему выбран такой состав")

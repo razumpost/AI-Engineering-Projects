@@ -24,6 +24,16 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--deal-id", required=True, help="ID сделки")
     ap.add_argument("--request", required=True, help="Текст запроса")
     ap.add_argument("--no-graph", action="store_true", help="Не использовать graph expansion")
+    ap.add_argument(
+        "--retrieval-diagnostics",
+        action="store_true",
+        help="Собрать и вывести JSON: merge по каждому query, pool до/после prune, probe поиски videowall",
+    )
+    ap.add_argument(
+        "--retrieval-diagnostics-json",
+        default="",
+        help="Опционально: путь для записи того же JSON в файл",
+    )
     return ap.parse_args()
 
 
@@ -61,13 +71,27 @@ def main() -> int:
             print(f"- {fam['family_id']} | {fam['kind']} | {fam['name']}")
         print()
 
+    retrieval_diagnostics: dict | None = {} if args.retrieval_diagnostics else None
+
     pool = build_candidate_pool_for_deal(
         deal_id=str(args.deal_id),
         transcript_text=request_text,
         current_spec=None,
         mode="compose",
         include_global=True,
+        retrieval_diagnostics=retrieval_diagnostics,
     )
+
+    if retrieval_diagnostics is not None:
+        print("[debug_deal_retrieval] retrieval_diagnostics_json")
+        diag_json = json.dumps(retrieval_diagnostics, ensure_ascii=False, indent=2, default=str)
+        print(diag_json)
+        print()
+        out_path = (args.retrieval_diagnostics_json or "").strip()
+        if out_path:
+            Path(out_path).write_text(diag_json, encoding="utf-8")
+            print(f"[debug_deal_retrieval] wrote retrieval_diagnostics to {out_path}")
+            print()
 
     print(f"[debug_deal_retrieval] deal_id={args.deal_id}")
     print(f"[debug_deal_retrieval] items={len(pool.items)} tasks={len(pool.tasks)}")

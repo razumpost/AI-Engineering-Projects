@@ -18,9 +18,13 @@ _WORD_NUM = {
 }
 
 _RE_SEATS = re.compile(r"(?:на\s*)?(\d{1,3})\s*(?:мест|чел)", re.IGNORECASE)
-_RE_CAM_NUM = re.compile(r"(\d{1,2})\s*(?:камер|camera|ptz)", re.IGNORECASE)
+_RE_CAM_NUM = re.compile(r"(\d{1,2})\s*(?:камер|ptz)", re.IGNORECASE)
 _RE_DISPLAY_NUM = re.compile(
     r"(\d{1,2})\s*(?:диспле(?:й|я|ев)|панел(?:ь|и|ей)|экран(?:а|ов)?|monitor|display)",
+    re.IGNORECASE,
+)
+_RE_WALL_GRID_AXB = re.compile(
+    r"(?:видеостен|videowall|стен\w*)?\s*(\d)\s*[xх*]\s*(\d)(?:\s*(?:из\s*)?(?:панел|монитор|экран))?",
     re.IGNORECASE,
 )
 
@@ -49,13 +53,31 @@ def _extract_word_number(text: str, anchors: list[str]) -> int | None:
     return None
 
 
+def _infer_wall_grid_panel_count(raw: str) -> int | None:
+    t = (raw or "")
+    m = _RE_WALL_GRID_AXB.search(t)
+    if not m:
+        return None
+    try:
+        a = int(m.group(1))
+        b = int(m.group(2))
+    except Exception:
+        return None
+    if a <= 0 or b <= 0:
+        return None
+    return a * b
+
+
 def _infer_room_type(raw: str) -> str:
     t = (raw or "").casefold()
 
     if _contains_any(t, ["led экран", "светодиод", "медиафасад", "led cabinet"]):
         return "led_screen"
 
-    if _contains_any(t, ["видеостен", "videowall", "ситуацион", "цод", "диспетчер", "стена 3*3", "стена 3х3"]):
+    if _infer_wall_grid_panel_count(raw or "") or _contains_any(
+        t,
+        ["видеостен", "videowall", "ситуацион", "цод", "диспетчер", "стена 3*3", "стена 3х3"],
+    ):
         return "videowall"
 
     if _contains_any(t, ["актовый зал", "конференц-зал", "аудитори", "lecture", "hall", "амфитеатр"]):
@@ -97,7 +119,10 @@ def _explicit_camera_request(raw: str) -> bool:
         return True
     if _extract_word_number(raw, ["камеры", "камер", "camera", "ptz"]):
         return True
-    return _contains_any(raw, ["камера", "camera", "ptz"])
+    return _contains_any(raw, ["камера", "ptz", "webcam"]) or (
+        "camera" in (raw or "").casefold()
+        and ("ptz" in (raw or "").casefold() or "usb" in (raw or "").casefold() or "conference" in (raw or "").casefold())
+    )
 
 
 def _extract_camera_count(raw: str, graph_flags: dict, *, discussion_mode: bool) -> int | None:
@@ -128,10 +153,14 @@ def _explicit_display_request(raw: str) -> bool:
     return _contains_any(raw, ["дисплей", "панель", "экран", "display", "monitor"])
 
 
-def _extract_display_count(raw: str, graph_flags: dict, *, discussion_mode: bool) -> int | None:
+def _extract_display_count(raw: str, graph_flags: dict, *, discussion_mode: bool, room_type: str) -> int | None:
     direct = _extract_int(_RE_DISPLAY_NUM, raw)
     if direct:
         return direct
+
+    wall_panels = _infer_wall_grid_panel_count(raw)
+    if wall_panels:
+        return wall_panels
 
     if _contains_any(raw, ["дисплей", "панель", "экран", "display", "monitor"]):
         return 1
@@ -140,7 +169,7 @@ def _extract_display_count(raw: str, graph_flags: dict, *, discussion_mode: bool
         return None
 
     if graph_flags.get("display_requested"):
-        return 1
+        return 1 if room_type != "videowall" else None
 
     return None
 
@@ -172,7 +201,7 @@ def parse_requirements(raw: str) -> ProjectRequirements:
 
     seat_count = _extract_seat_count(t, gf)
     camera_count = _extract_camera_count(t, gf, discussion_mode=discussion_mode)
-    display_count = _extract_display_count(t, gf, discussion_mode=discussion_mode)
+    display_count = _extract_display_count(t, gf, discussion_mode=discussion_mode, room_type=room_type)
 
     explicit_projector = _contains_any(t, ["проектор", "projector", "короткофокус"])
     explicit_display = _explicit_display_request(t)
@@ -180,13 +209,20 @@ def parse_requirements(raw: str) -> ProjectRequirements:
 
     # Для discussion-запросов presentation/vks не включаем по умолчанию,
     # если пользователь явно не говорил про дисплей/камеры/видеосвязь.
-    presentation = bool(
-        (explicit_display or _contains_any(t, ["презента", "вывод контента", "источник сигнала", "hdmi"]))
-        and not discussion_mode
-    )
+    presentation = False
+    if not discussion_mode:
+        if room_type == "videowall":
+            presentation = bool(explicit_display and _contains_any(t, ["презента"]))
+        else:
+            presentation = bool(
+                explicit_display
+                or _contains_any(t, ["презента", "вывод контента", "источник сигнала", "hdmi"])
+            )
 
     flags = {
-        "vks": _contains_any(t, ["вкс", "zoom", "teams", "meet", "видеосвяз", "conference call"]) and not discussion_mode,
+        "vks": _contains_any(t, ["вкс", "zoom", "teams", "видеосвяз", "conference call"])
+        and not discussion_mode
+        and room_type != "videowall",
         "byod": _contains_any(t, ["byod", "usb-c", "type-c", "подключение ноутбука", "ноутбук заказчика"]) and not discussion_mode,
         "presentation": presentation,
         "recording": _contains_any(t, ["запись", "recording", "архив"]),

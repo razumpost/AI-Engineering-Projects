@@ -15,6 +15,10 @@ def classify_price_item(name: str, description: str | None = None) -> str:
     if not text:
         return "other"
 
+    # Очевидные сервисные/калибровочные аксессуары не считаем core-устройствами.
+    if any(x in text for x in ["calibration kit", "калибров", "service toolkit", "toolkit", "монтажный комплект", "комплект юстировки"]):
+        return "other"
+
     # ------------------------------------------------------------
     # 1) DISCUSSION / CONFERENCE SYSTEM
     # ------------------------------------------------------------
@@ -67,6 +71,25 @@ def classify_price_item(name: str, description: str | None = None) -> str:
         "процессор обработки аудио",
         "dsp processor",
         "dsp unit",
+    ]):
+        return "controller"
+
+    if any(x in text for x in [
+        "videowall controller",
+        "video wall controller",
+        "videowall processor",
+        "video wall processor",
+        "контроллер видеостен",
+        "контроллер видеостены",
+        "процессор видеостен",
+        "процессор видеостены",
+        "matrix switcher",
+        "hdmi matrix",
+        "matrix controller",
+        "матричный коммутатор",
+        "коммутатор матричный",
+        "seamless switcher",
+        "multiviewer",
     ]):
         return "controller"
 

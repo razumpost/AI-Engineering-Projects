@@ -103,6 +103,39 @@ def _find_first_placeholder(spec: Any, kind: str) -> Any | None:
     return None
 
 
+def _grounded_role(line: Any) -> str | None:
+    meta = getattr(line, "meta", None)
+    if isinstance(meta, dict) and meta.get("grounded_from_role"):
+        return str(meta.get("grounded_from_role"))
+    return None
+
+
+def _has_videowall_role(spec: Any, role: str) -> bool:
+    for line in _items(spec):
+        if _grounded_role(line) == role or _placeholder_kind(line) == role:
+            return True
+
+    family_fallback = {
+        "videowall_panel": ["videowall_panel", "display_panel"],
+        "videowall_mount": ["videowall_mount", "mounting_kit"],
+        "videowall_controller": ["videowall_controller"],
+        "matrix_switcher": ["matrix_switcher"],
+        "cabling_av": ["cabling_av", "power_accessories"],
+    }
+    for fam in family_fallback.get(role, []):
+        if _find_first_by_family(spec, fam) is not None:
+            return True
+    return False
+
+
+def _find_first_any_family(spec: Any, families: list[str]) -> Any | None:
+    for fam in families:
+        line = _find_first_by_family(spec, fam)
+        if line is not None:
+            return line
+    return None
+
+
 def _has_line(spec: Any, family_or_placeholder: str) -> bool:
     return (
         _find_first_by_family(spec, family_or_placeholder) is not None
@@ -113,6 +146,30 @@ def _has_line(spec: Any, family_or_placeholder: str) -> bool:
 def _summary(spec: Any, requirements: ProjectRequirements, topology: TopologyDecision) -> str:
     _ = topology
     seat_count = int(requirements.caps.seat_count or 0)
+    display_count = int(requirements.caps.display_count or 0)
+
+    if requirements.room_type == "videowall":
+        base = (
+            f"Система видеостены на {display_count} панелей"
+            if display_count > 0
+            else "Система видеостены"
+        )
+        detail_parts: list[str] = []
+        if _has_videowall_role(spec, "videowall_panel"):
+            detail_parts.append("панелями видеостены")
+        if _has_videowall_role(spec, "videowall_mount"):
+            detail_parts.append("креплением/каркасом")
+        if _has_videowall_role(spec, "videowall_controller"):
+            detail_parts.append("контроллером видеостены")
+        if _has_videowall_role(spec, "matrix_switcher"):
+            detail_parts.append("матричной коммутацией")
+        if _has_videowall_role(spec, "cabling_av"):
+            detail_parts.append("кабельной системой")
+
+        if detail_parts:
+            return base + " с " + ", ".join(detail_parts) + ". Требуется уточнение моделей ключевых компонентов."
+
+        return base + "."
 
     if requirements.room_type == "meeting_room":
         base = (
@@ -160,6 +217,32 @@ def _selection_bullets(spec: Any, requirements: ProjectRequirements, topology: T
     _ = requirements
     bullets: list[str] = []
 
+    if requirements.room_type == "videowall":
+        if _has_videowall_role(spec, "videowall_panel"):
+            bullets.append("Сначала закрыта базовая роль wall_display_tiles (панели видеостены).")
+        if _has_videowall_role(spec, "videowall_mount"):
+            bullets.append("Добавлена роль wall_mounting_system (крепление/каркас видеостены).")
+        if _has_videowall_role(spec, "videowall_controller"):
+            bullets.append("Добавлена роль wall_signal_controller (контроллер/процессор видеостены).")
+        if _has_videowall_role(spec, "matrix_switcher"):
+            bullets.append("Добавлена роль wall_signal_distribution (матричный коммутатор).")
+        if _has_videowall_role(spec, "cabling_av"):
+            bullets.append("Добавлена роль wall_cabling_and_accessories (коммутация и кабельная система).")
+
+        missing_families: list[str] = []
+        for fam in ["videowall_panel", "videowall_mount", "videowall_controller", "matrix_switcher", "cabling_av"]:
+            if _find_first_placeholder(spec, fam) is not None:
+                missing_families.append(fam)
+        if missing_families:
+            bullets.append(
+                "Часть критических family из ENGINEERING_GRAPH_CONTEXT "
+                f"({', '.join(missing_families)}) пока не покрыта надежными candidate_id и добавлена как placeholder."
+            )
+
+        if not bullets:
+            bullets.append("Состав видеостены сформирован на основе инженерного контекста и финальной спецификации.")
+        return bullets
+
     delegate = _find_first_by_family(spec, "delegate_unit")
     psu = _find_first_by_family(spec, "power_supply_discussion")
 
@@ -202,6 +285,43 @@ def _quantity_and_price_bullets(spec: Any, requirements: ProjectRequirements, to
     bullets: list[str] = []
 
     seat_count = int(requirements.caps.seat_count or 0)
+    display_count = int(requirements.caps.display_count or 0)
+
+    if requirements.room_type == "videowall":
+        panel = _find_first_any_family(spec, ["videowall_panel"])
+        mount = _find_first_any_family(spec, ["videowall_mount", "mounting_kit"])
+        controller = _find_first_any_family(spec, ["videowall_controller"])
+        matrix = _find_first_any_family(spec, ["matrix_switcher"])
+        cabling = _find_first_any_family(spec, ["cabling_av"])
+
+        qty_parts: list[str] = []
+        if panel is not None:
+            pq = _line_qty(panel)
+            if pq > 0:
+                qty_parts.append(f"Панели видеостены: {pq} шт.")
+            elif display_count > 0:
+                qty_parts.append(f"Панели видеостены: целевое количество {display_count} шт.")
+        elif display_count > 0:
+            qty_parts.append(f"Панели видеостены: целевое количество {display_count} шт.")
+
+        if mount is not None:
+            mq = _line_qty(mount)
+            qty_parts.append(f"Крепление/каркас: {mq if mq > 0 else 1} шт.")
+
+        if controller is not None:
+            cq = _line_qty(controller)
+            qty_parts.append(f"Контроллер видеостены: {cq if cq > 0 else 1} шт.")
+
+        if matrix is not None:
+            xq = _line_qty(matrix)
+            qty_parts.append(f"Матричный коммутатор: {xq if xq > 0 else 1} шт.")
+
+        if cabling is not None:
+            wq = _line_qty(cabling)
+            qty_parts.append(f"Коммутация/кабели: {wq if wq > 0 else 1} комплект.")
+
+        if qty_parts:
+            bullets.append("; ".join(qty_parts))
 
     delegate = _find_first_by_family(spec, "delegate_unit")
     chairman = _find_first_placeholder(spec, "chairman_unit") or _find_first_by_family(spec, "chairman_unit")
@@ -294,6 +414,34 @@ def _manager_questions(spec: Any, requirements: ProjectRequirements, topology: T
     _ = topology
     qs: list[str] = []
 
+    if requirements.room_type == "videowall":
+        if _find_first_placeholder(spec, "videowall_panel") is not None:
+            qs.append("Нужны панели именно для LCD видеостены (узкий шов), или допустим другой тип экрана?")
+        if _find_first_placeholder(spec, "videowall_mount") is not None:
+            qs.append("Какой тип монтажа видеостены требуется: настенный каркас/pull-out или иная конструкция?")
+        if _find_first_placeholder(spec, "videowall_controller") is not None:
+            qs.append("Какой контроллер/процессор видеостены планируется (кол-во окон, пресеты, сценарии)?")
+        if _find_first_placeholder(spec, "matrix_switcher") is not None:
+            qs.append("Подтвердите требуемую матрицу по входам/выходам (например 12x4) и типы сигналов (HDMI/DP/IP).")
+        if _find_first_placeholder(spec, "cabling_av") is not None:
+            qs.append("Какие расстояния и трассы по кабельной системе видеостены нужно закладывать?")
+
+        qs.extend(
+            [
+                "Сколько одновременно независимых источников контента должно отображаться на видеостене?",
+                "Нужны ли резервирование контроллера/матрицы и требования по 24/7 режиму?",
+                "Требуется ли удаленное управление и интеграция с общей системой управления объекта?",
+            ]
+        )
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for q in qs:
+            if q not in seen:
+                seen.add(q)
+                out.append(q)
+        return out
+
     if _find_first_placeholder(spec, "discussion_central_unit") is not None:
         qs.append(
             "Какой центральный блок конференц-системы (discussion_central_unit) предполагается "
@@ -346,6 +494,19 @@ def _assumptions(spec: Any, requirements: ProjectRequirements, topology: Topolog
     _ = topology
     vals: list[str] = []
 
+    if requirements.room_type == "videowall":
+        if _has_line(spec, "videowall_panel"):
+            vals.append("Панели видеостены подбираются как профессиональные LCD-videowall панели под непрерывный режим работы.")
+        if _has_line(spec, "videowall_mount"):
+            vals.append("Для монтажа видеостены требуется специализированный каркас/крепление с юстировкой.")
+        if _has_line(spec, "videowall_controller"):
+            vals.append("Контроллер/процессор видеостены обязателен для управления раскладками и сценариями отображения.")
+        if _has_line(spec, "matrix_switcher"):
+            vals.append("Для нескольких источников сигнала закладывается матричная коммутация.")
+        if _has_line(spec, "cabling_av"):
+            vals.append("Коммутация и кабельная система учитываются как обязательная часть внедрения видеостены.")
+        return vals
+
     if _find_first_by_family(spec, "delegate_unit") is not None:
         vals.append("Пульты делегатов требуются в количестве по числу мест делегатов.")
 
@@ -374,6 +535,18 @@ def _risks(spec: Any, requirements: ProjectRequirements, topology: TopologyDecis
     _ = requirements
     _ = topology
     vals: list[str] = []
+
+    if requirements.room_type == "videowall":
+        if _find_first_placeholder(spec, "videowall_panel") is not None:
+            vals.append("Без подтвержденных моделей панелей нельзя финализировать шов, яркость и тепловой режим видеостены.")
+        if _find_first_placeholder(spec, "videowall_mount") is not None:
+            vals.append("Без уточнения крепления/каркаса есть риск срыва монтажных сроков.")
+        if _find_first_placeholder(spec, "videowall_controller") is not None:
+            vals.append("Без контроллера/процессора видеостены невозможно гарантировать требуемые сценарии отображения.")
+        if _find_first_placeholder(spec, "matrix_switcher") is not None:
+            vals.append("Неуточненная матрица входов/выходов может привести к нехватке портов коммутации.")
+        if _find_first_placeholder(spec, "cabling_av") is not None:
+            vals.append("Недооценка кабельной системы может вызвать проблемы при пусконаладке.")
 
     if _find_first_placeholder(spec, "discussion_central_unit") is not None:
         vals.append("Без центрального блока система не будет работать.")

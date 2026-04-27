@@ -24,6 +24,8 @@ _FAMILY_TO_CATEGORY = {
     "projector": "display",
     "projection_screen": "display",
     "videowall_panel": "display",
+    "videowall_mount": "signal_transport",
+    "videowall_controller": "processing",
     "led_cabinet": "display",
     "delegate_unit": "conference",
     "chairman_unit": "conference",
@@ -182,8 +184,21 @@ def merge_duplicate_candidate_lines(spec: Any) -> None:
 
 def normalize_categories(spec: Any, source_pool: Any) -> None:
     cls_by_id = _classified_by_id(source_pool)
+    role_to_category = {
+        "videowall_panel": "display",
+        "videowall_mount": "signal_transport",
+        "matrix_switcher": "signal_transport",
+        "videowall_controller": "processing",
+        "cabling_av": "signal_transport",
+    }
 
     for line in list(getattr(spec, "items", []) or []):
+        meta = getattr(line, "meta", None) or {}
+        if isinstance(meta, dict):
+            grounded_role = meta.get("grounded_from_role")
+            if grounded_role in role_to_category:
+                setattr(line, "category", role_to_category[str(grounded_role)])
+                continue
         fam = _line_family(line, cls_by_id)
         if not fam:
             continue

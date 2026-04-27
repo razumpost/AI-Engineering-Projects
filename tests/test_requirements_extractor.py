@@ -14,3 +14,15 @@ def test_parse_requirements_meeting_room_vks_byod():
 def test_parse_requirements_led_screen():
     req = parse_requirements("Светодиодный экран для сцены 6х3м")
     assert req.room_type == "led_screen"
+
+
+def test_parse_requirements_videowall_baseline_request():
+    req = parse_requirements(
+        "видеостена 3x3, настенное крепление, 7 источников сигнала, 12 входов, 4 выхода, нужно управление отображением"
+    )
+    assert req.room_type == "videowall"
+    assert req.caps.display_count == 9
+    assert req.caps.camera_count is None
+    assert req.flags.vks is False
+    assert req.flags.presentation is False
+    assert req.flags.control is True
