@@ -315,6 +315,22 @@ def _looks_non_product_row(text: str) -> bool:
     return company_like or contract_like or sku_date_like
 
 
+def _candidate_has_product_grounding(ci: Any, text: str) -> bool:
+    if _looks_non_product_row(text):
+        return False
+    manufacturer = _sanitize_text(getattr(ci, "manufacturer", ""))
+    sku = _sanitize_text(getattr(ci, "sku", ""))
+    model = _sanitize_text(getattr(ci, "model", ""))
+    name = _sanitize_text(getattr(ci, "name", ""))
+    has_identity = bool(
+        (manufacturer and manufacturer != "Уточнить")
+        or (sku and sku != "—")
+        or model
+        or name
+    )
+    return has_identity and bool(_candidate_task_ids(ci) or _candidate_unit_price(ci) is not None or sku or model)
+
+
 def _candidate_eligible_for_role(role_kind: str, family: str | None, text: str) -> bool:
     if _looks_non_product_row(text):
         return False
@@ -325,7 +341,7 @@ def _candidate_eligible_for_role(role_kind: str, family: str | None, text: str) 
     if role_kind == "matrix_switcher":
         return fam == "matrix_switcher" or (_looks_matrix_like(text) and not _looks_controller_like(text))
     if role_kind == "cabling_av":
-        return fam in {"cabling_av", "power_accessories"} and _looks_cabling_like(text)
+        return _looks_cabling_like(text) and not (_looks_controller_like(text) or _looks_matrix_like(text))
     if role_kind == "videowall_mount":
         return fam in {"videowall_mount", "mounting_kit"} and any(
             x in text for x in ["mount", "pull-out", "bracket", "кронштейн", "каркас", "frame"]
@@ -351,11 +367,13 @@ def _pick_best_candidate_for_role(
         if not cid or cid in used_candidate_ids:
             continue
         text = _candidate_text(ci)
+        if not _candidate_has_product_grounding(ci, text):
+            continue
         if not _candidate_eligible_for_role(role_kind, cls.family, text):
             continue
         # Text-first exceptions are deliberate for VDN/controller-like rows whose
         # family classifier may be too broad. Other roles stay family-gated.
-        if cls.family not in fam_set and role_kind != "videowall_controller":
+        if cls.family not in fam_set and role_kind not in {"videowall_controller", "cabling_av"}:
             continue
         score = _candidate_score(ci, float(getattr(cls, "family_confidence", 0.0) or 0.0))
         score += _role_text_bonus(role_kind, text)
@@ -380,8 +398,13 @@ def _ground_line_from_candidate(line: Any, ci: Any, role_kind: str) -> None:
     description = _sanitize_text(getattr(ci, "description", None) or getattr(line, "description", None))
     if not name and description:
         name = description
-    if not description:
-        description = name or "Позиция"
+
+    composed_parts = [x for x in [manufacturer, model or sku, name] if x and x not in {"—", "Уточнить"}]
+    composed_description = " — ".join(composed_parts)
+    if not description or re.fullmatch(r"[\d\s.,]+", description):
+        description = composed_description or name or "Позиция"
+    elif role_kind in {"matrix_switcher", "videowall_mount", "videowall_controller"} and composed_description:
+        description = composed_description
 
     setattr(line, "manufacturer", manufacturer)
     setattr(line, "sku", sku)

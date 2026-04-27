@@ -250,15 +250,25 @@ def _sanitize_line_text_fields(line: Any) -> None:
     raw_name = _sanitize_text(getattr(line, "name", ""))
     raw_desc = _sanitize_text(getattr(line, "description", ""))
     raw_model = _sanitize_text(getattr(line, "model", ""))
+    raw_sku = _sanitize_text(getattr(line, "sku", ""))
+    raw_manufacturer = _sanitize_text(getattr(line, "manufacturer", ""))
 
     best = raw_desc or raw_name or raw_model or "Позиция"
     if _looks_numeric_short(best):
-        for alt in [raw_name, raw_desc, raw_model]:
+        for alt in [raw_name, raw_model, raw_sku, raw_desc]:
             if alt and not _looks_numeric_short(alt):
                 best = alt
                 break
     if _looks_numeric_short(best):
         best = "Позиция, требуется уточнение"
+
+    role = _line_grounded_role(line)
+    if role in {"matrix_switcher", "videowall_mount", "videowall_controller"}:
+        composed = " — ".join(
+            x for x in [raw_manufacturer, raw_model or raw_sku, raw_name] if x and x not in {"—", "Уточнить"}
+        )
+        if composed:
+            best = composed
 
     # Description should be the most human-readable field for exporter.
     setattr(line, "description", best)
